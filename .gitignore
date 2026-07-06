@@ -1,0 +1,67 @@
+# ── macOS ──────────────────────────────────────────────
+.DS_Store
+.DS_Store?
+._*
+.AppleDouble
+.LSOverride
+.Spotlight-V100
+.Trashes
+Icon?
+
+# ── Windows ────────────────────────────────────────────
+Thumbs.db
+Thumbs.db:encryptable
+ehthumbs.db
+Desktop.ini
+$RECYCLE.BIN/
+
+# ── Linux ──────────────────────────────────────────────
+*~
+.fuse_hidden*
+.directory
+.Trash-*
+
+# ── 에디터 / IDE ───────────────────────────────────────
+.vscode/
+.idea/
+*.swp
+*.swo
+*.sublime-workspace
+*.sublime-project
+.netrwhist
+
+# ── 로그 / 임시 / 백업 ─────────────────────────────────
+*.log
+*.tmp
+*.temp
+*.bak
+*.orig
+*.rej
+.cache/
+tmp/
+temp/
+
+# ── 비밀정보 / 환경변수 ────────────────────────────────
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+secrets/
+
+# ── loop-harness 런타임 산출물 ─────────────────────────
+# .claude/loop/ 상태 파일은 커밋 대상이지만, 아래 임시 산출물은 세션마다
+# 새로 생기는 휘발성 파일이라 절대 커밋하지 않는다.
+.claude/loop/.run-marker
+.claude/loop/.last-usage
+.claude/loop/.hook-debug.log
+.claude/loop/.codex-prompt
+.claude/loop/.codex-last
+.claude/loop/.codex-log
+
+# ── 언어 도구 산출물 (도구 도입 시 대비) ───────────────
+node_modules/
+__pycache__/
+*.py[cod]
+.venv/
+venv/
