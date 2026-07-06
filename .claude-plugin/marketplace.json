@@ -1,0 +1,13 @@
+{
+  "name": "loop-harness-marketplace",
+  "owner": {
+    "name": "hhamja"
+  },
+  "plugins": [
+    {
+      "name": "loop-harness",
+      "source": "./",
+      "description": "Universal loop-engineering harness: machine-verifiable stop conditions, maker/checker separation, disk-based loop memory."
+    }
+  ]
+}

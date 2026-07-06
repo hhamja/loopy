@@ -1,0 +1,8 @@
+{
+  "name": "loop-harness",
+  "version": "0.1.0",
+  "description": "Universal loop-engineering harness: machine-verifiable stop conditions, maker/checker separation, disk-based loop memory.",
+  "author": {
+    "name": "hhamja"
+  }
+}

@@ -1,0 +1,36 @@
+---
+name: loop-engineering
+description: Loop engineering method — machine-verifiable stop conditions, maker/checker separation via a verifier subagent, disk-based memory in .claude/loop/. Consult when designing or running agent loops.
+---
+
+# Loop Engineering
+
+Design the system that prompts the agent instead of prompting the agent each turn. A loop = run → collect feedback → self-correct, repeated until a verifiable stop condition holds.
+
+## Three principles (non-negotiable)
+
+1. **The agent that wrote the code must not grade it.** Grading belongs to the `verifier` subagent: fresh context, read-only, `rubric.md` as its only standard. It returns a report; the main agent applies it to the loop files.
+2. **"Done" is a claim, not a proof.** Every stop condition must be machine-checkable: a command that exits 0, a file that exists, an output that matches. Subjective criteria are banned from rubric.md.
+3. **Memory lives on disk, not in context.** Everything the next session needs is in `.claude/loop/` — `state.md` is the entry point; a fresh session reads that directory and resumes where the loop stopped.
+
+## Structure
+
+Plugin = immutable logic (installed once per machine). `.claude/loop/` = mutable state (once per project, created by `/loop-harness:loop-init`): `goal.md`, `rubric.md`, `state.md` (summary rewritten each cycle, max 100 lines), `memory.md`, `review.md` (human review summary, every cycle), `loop.config.md` (the only stack-dependent file).
+
+## Cycle shape
+
+Implement → verifier grades ONCE at cycle end (phase gate — never per file edit) → main agent updates rubric checkboxes, rewrites state.md, records memory per protocol, overwrites review.md. Safety rails are always on: `max_iterations` cap and 3-consecutive-failure escalation. An unbounded "repeat until pass" loop is forbidden.
+
+## Cheap reconnaissance
+
+Use the `explorer` agent (haiku, read-only) when a cycle needs codebase scouting before implementing — file maps, symbol locations, conventions. Don't spend main-context tokens on broad reading.
+
+## When to read references/
+
+- Writing or fixing rubric criteria, or a criterion feels subjective → `references/rubric-guide.md`
+- Recording a failure, deciding what to distill, `[plugin]` vs `[project]` tagging → `references/memory-protocol.md`
+- Running parallel loop tasks in git worktrees, merging results → `references/worktree-guide.md`
+
+## Cost discipline
+
+Loops, verifiers and subagents burn tokens. Prefer `--verify-only` (grade once) or `--once` (single cycle) before committing to a full run. Deterministic work (budget counting, hook verdicts, state parsing, token estimation) belongs in scripts, not prompts.
