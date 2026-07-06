@@ -1,8 +1,10 @@
-# 임무: Loop Harness — 범용 루프 엔지니어링 Claude Code 플러그인 구축 (v3.4.4 최종)
+# 임무: Loop Harness — 범용 루프 엔지니어링 Claude Code 플러그인 구축 (v3.5.0 최종)
 
-[English](mission-v3.4.4.en.md) | [**한국어**](mission-v3.4.4.md)
+[English](mission-v3.5.0.en.md) | [**한국어**](mission-v3.5.0.md)
 
 아래 전체를 복사해서 Claude Code에 붙여넣으세요.
+
+**v3.4.4 → v3.5.0 변경 요지:** 구현 주체를 교차 모델로 분리 — maker = OpenAI Codex CLI(`codex exec`), checker = Claude verifier. ① loop-run의 구현 단계가 loop.config.md의 `implementer: codex|claude`에 따라 분기: codex면 메인 에이전트가 매 사이클 디스크 상태(goal + 미해결 rubric 기준·검증 명령 + 직전 verifier 실패 사유 + memory.md distilled rules)로 프롬프트를 새로 조립해 `codex exec --full-auto`를 Bash 1회 호출로 실행한다. `resume --last` 세션 재사용은 쓰지 않는다 — "메모리는 컨텍스트가 아니라 디스크에" 원칙의 구현 주체 확장 ② 컨텍스트 위생: codex 전체 출력은 `.claude/loop/.codex-log`로 리다이렉트하고, 메인 에이전트는 `--output-last-message`가 쓰는 `.codex-last`만 읽는다. 프롬프트는 `.codex-prompt`에 기록(숨김 임시 파일 3종 신설 — 기존 `.claude/loop/.*` gitignore 규칙이 커버) ③ 폴백 2단: loop-init이 `codex --version`으로 감지해 implementer 기본값을 기록하고, loop-run 시작 시 1회 재확인 — CLI 불가 시 해당 run 전체를 claude로 진행하고 state.md·memory.md에 기록; `codex exec` 비정상 종료는 동일 명령 1회 재시도 후 해당 사이클만 claude 폴백(설치돼 있으나 미인증인 경우를 preflight가 못 잡으므로 필요) ④ codex 프롬프트 고정 가드레일: `.claude/loop/` 수정 금지(루프 상태는 Claude 오케스트레이터 소유), git commit/push 금지(커밋은 사람 몫), 나열된 기준만 최소 변경, 변경 파일 목록으로 응답 종료 ⑤ loop.config.md에 `implementer`·`codex_args`(모델/네트워크 등 passthrough) 키 추가 — "유일한 스택 종속 지점"이 "유일한 스택·환경 종속 지점"으로 확장. 핵심 요구사항 1의 maker/checker 분리는 "별도 sub-agent"에서 "별도 실행 주체(교차 모델 프로세스 또는 메인/서브 에이전트 분리)"로 일반화 — checker가 maker의 산출물을 독립 컨텍스트에서 채점한다는 불변식은 동일. verifier_guard(agent_type 스코프)·stop_gate 로직은 불변(codex는 메인 에이전트 Bash로 실행). 플러그인 버전 0.1.0 → 0.2.0.
 
 **v3.4.3 → v3.4.4 변경 요지:** 실증 검토 반영 3건 (Claude Code v2.1.201 실측 기준) — ① 도그푸딩 permission mode 정정: headless(`-p`)에서는 권한 프롬프트를 띄울 수 없어 `acceptEdits`로는 **모든 Bash 도구 호출이 거부됨**(실측 — 루프의 test 실행·verifier 채점·스모크 체크 전부 불가. 스모크 ②는 권한 계층 거부가 guard deny로 오판되는 위양성까지 발생) → `--permission-mode bypassPermissions`로 교체(일회용 도그푸딩 프로젝트 한정). hook의 deny는 permission mode와 독립적으로 발화함이 실측 확인되어 스모크 ②의 판정 전제는 유지 ② verifier_guard 폴백 트리거 확장 — "`agent_type` 필드 부재"만 정의돼 있던 것을 "필드는 존재하나 값 불일치(deny 미발화가 디버그 로그로 실증, 매칭 문자열 조정 1회 재시도 후)"까지 포함: 값 불일치 환경에서 수용 기준(실차단/필드 부재 폴백)의 어느 분기도 성립하지 않아 교착하던 경로 제거. 수용 기준·스모크 ②·README 한계 문구 동기화 ③ `--verify-only` read-only 보장 문구를 "잔존 marker 없는 신선한 세션 기준"으로 한정 — 동일 세션에 marker가 잔존하면 verify-only 턴 종료도 판정 4에 도달해 `.last-usage`가 갱신되므로 "state.md 1줄이 유일한 예외" 문구가 자기모순이었음(메커니즘 불변 — 보장 대상을 지속 파일(커밋 대상)로 정의하고 숨김 임시 파일은 범위 밖으로 명시). 설계 구조 변경 없음(신규 파일·hook 이벤트 추가 없음).
 
@@ -31,7 +33,7 @@
 루프 엔지니어링: 에이전트에 매 턴 직접 프롬프트하는 대신, "에이전트를 프롬프트하는 시스템"을 설계하는 방식.
 
 - 루프 = 검증 가능한 정지 조건(goal/rubric)이 충족될 때까지 실행 → 피드백 수집 → 자가 수정을 반복하는 재귀 구조
-- 6대 구성 요소: Automations(커맨드/hooks), Worktrees(병렬 격리), Skills(프로젝트 지식 외부화), Plugins(배포 단위), Sub-agents(maker/checker 분리), Memory(디스크 기반 상태)
+- 6대 구성 요소: Automations(커맨드/hooks), Worktrees(병렬 격리), Skills(프로젝트 지식 외부화), Plugins(배포 단위), Sub-agents/외부 CLI(maker/checker 분리 — maker는 Codex CLI 등 교차 모델 가능), Memory(디스크 기반 상태)
 - 핵심 원칙 3가지:
   1. 코드를 쓴 에이전트가 자기 숙제를 채점하면 안 됨 → 독립 컨텍스트의 verifier sub-agent가 채점
   2. "done"은 주장이지 증명이 아님 → 정지 조건은 기계적으로 체크 가능해야 함(테스트 통과, lint clean, 파일 존재 등)
@@ -55,7 +57,7 @@ loop-harness/
 ├── CHANGELOG.md
 ├── README.md                           # 아래 "README 요건" 참조
 ├── commands/                           # 이하 전부 플러그인 루트 기준
-│   ├── loop-init.md                    # .claude/loop/ 스캐폴드 생성 + 스택 자동 감지.
+│   ├── loop-init.md                    # .claude/loop/ 스캐폴드 생성 + 스택 자동 감지 + implementer 감지(codex --version).
 │   │                                   #   대화형: 감지 실패 시 사용자에게 질문
 │   │                                   #   비대화형(-p): 질문 금지 — package.json scripts, pyproject.toml,
 │   │                                   #   Makefile, Cargo.toml 등 생태계별 매니페스트에서 감지,
@@ -95,14 +97,17 @@ loop-init이 생성하는 프로젝트 로컬 파일:
 │                    #   활성 플래그는 사람·loop-status용 정보. hook 차단 판정은 .run-marker 기준(hooks 명세)
 ├── memory.md        # 5단계 프로토콜 기록. distill된 규칙 상단 유지, raw fail 로그 200줄 초과 시 압축
 ├── review.md        # 최신 사이클의 사람용 리뷰 요약(변경 파일, 핵심 변경 요지, 리스크) — 매 사이클 덮어씀
-├── loop.config.md   # test/lint/build 명령 + max_iterations(기본 10) + 에스컬레이션 정책
-│                    #   — 유일한 스택 종속 지점
+├── loop.config.md   # test/lint/build 명령 + implementer(codex|claude) + codex_args + max_iterations(기본 10)
+│                    #   + 에스컬레이션 정책 — 유일한 스택·환경 종속 지점
 ├── .run-marker      # loop-run 시작 시 기록: session_id + timestamp. 단, --verify-only는 기록하지 않음.
 │                    #   session_id는 $CLAUDE_CODE_SESSION_ID에서 획득("루프 실행 모델" 참조)
 │                    #   정상 종료 후에도 삭제하지 않음(의도된 동작 — hooks 명세 참조). 임시 파일, 커밋 금지
-└── .last-usage      # stop_gate.sh가 기록하는 run 토큰 추정치(누적 transcript 크기 + 직전 대비 delta).
-                     #   동일 세션의 후속 비루프 턴도 판정 4에 도달하므로 delta에 비루프 턴 사용량이
-                     #   섞일 수 있음(추정치 한계로 수용). 임시 파일, 커밋 금지
+├── .last-usage      # stop_gate.sh가 기록하는 run 토큰 추정치(누적 transcript 크기 + 직전 대비 delta).
+│                    #   동일 세션의 후속 비루프 턴도 판정 4에 도달하므로 delta에 비루프 턴 사용량이
+│                    #   섞일 수 있음(추정치 한계로 수용). 임시 파일, 커밋 금지
+├── .codex-prompt    # implementer: codex일 때 사이클마다 재작성되는 codex 구현 프롬프트. 임시 파일, 커밋 금지
+├── .codex-last      # codex exec --output-last-message 출력 — 메인 에이전트가 읽는 유일한 codex 산출. 커밋 금지
+└── .codex-log       # codex exec 전체 stdout/stderr — 사람 디버깅용, 메인 에이전트 읽기 금지. 임시 파일, 커밋 금지
 ```
 
 - loop-init은 `.claude/loop/.*`(숨김 임시 파일)을 .gitignore에 추가한다. 나머지 파일은 커밋 권장(팀 공유·세션 복원)이 기본값이며, README에 이 정책을 명시한다.
@@ -127,7 +132,20 @@ loop-init이 생성하는 프로젝트 로컬 파일:
 
 - 기본 동작: rubric 전 기준 통과 또는 안전장치 발동까지 사이클 반복.
 - 옵션: `--once` = 1사이클만 실행(점진 채택·비용 통제용). `--verify-only` = 구현 없이 verifier 채점 1회만 실행하고 리포트 출력(기존 코드 리뷰 용도, 점진 채택 진입점). **`--verify-only`는 전 과정 read-only: `.run-marker`를 포함해 어떤 파일도 기록·수정하지 않는다**(잔존 marker 없는 신선한 세션 기준 — 동일 세션에 marker가 잔존하면 턴 종료 시 stop_gate가 `.last-usage`를 갱신한다, hooks 명세·알려진 한계 2 참조) — marker를 쓰면 Stop gate 판정 4가 verify-only 자신을 차단한다.
-- 1사이클 = 구현 → verifier 채점(phase gate, 사이클 종료 시점 1회만) → 메인 에이전트가 rubric/state/memory/review 갱신.
+- 1사이클 = 구현(implementer 분기: `codex exec` 또는 메인 에이전트) → verifier 채점(phase gate, 사이클 종료 시점 1회만) → 메인 에이전트가 rubric/state/memory/review 갱신.
+- **구현 주체 명세 (implementer):** loop.config.md의 `implementer:`가 결정한다(키 부재 = claude).
+  - **claude(또는 폴백):** 메인 에이전트가 미해결 기준을 직접 구현(종전 동작).
+  - **codex:** 메인 에이전트가 매 사이클 프롬프트를 새로 조립(goal + 미해결 기준·검증 명령 verbatim + 직전 verifier 실패 사유 + memory.md distilled rules + 고정 가드레일)해 `.claude/loop/.codex-prompt`에 기록하고, Bash 1회 호출로 실행한다(넉넉한 timeout — 예: 10분. Bash 기본 2분은 codex 편집 도중 죽인다):
+    ```bash
+    codex exec --full-auto --skip-git-repo-check --output-last-message .claude/loop/.codex-last - < .claude/loop/.codex-prompt > .claude/loop/.codex-log 2>&1
+    ```
+    (`codex_args`가 비어 있지 않으면 `-` 앞에 삽입한다.) `--full-auto` = workspace-write 샌드박스(bypass 금지). `--skip-git-repo-check` = 비-git 프로젝트에서 hard-fail 방지. 프롬프트는 stdin(`-`)으로 넘겨 멀티라인 quoting을 피한다.
+  - **fresh per cycle:** `resume`를 쓰지 않고 매번 디스크 상태에서 프롬프트를 재조립한다 — "메모리는 디스크에" 원칙.
+  - **컨텍스트 위생:** 메인 에이전트는 `.codex-last`만 읽는다. `.codex-log`(전체 출력)는 절대 읽지 않는다(컨텍스트 오염 방지).
+  - **고정 가드레일(프롬프트에 포함):** `.claude/loop/` 수정 금지, git commit/push 금지, 나열된 기준만 최소 변경, 응답 끝에 변경 파일 목록.
+  - **2단 폴백:** ① preflight — `codex --version` 실패 시 해당 run 전체를 claude로 진행 + state.md·memory.md 기록. ② `codex exec` 비정상 종료 — 동일 명령 1회 재시도 후 그래도 실패하면 해당 사이클만 claude로 구현 + 기록(codex는 다음 사이클에서 계속 implementer). 설치됐으나 미인증인 codex는 preflight를 통과하므로 ②가 필요하다.
+  - **샌드박스 네트워크:** workspace-write 샌드박스는 기본 네트워크 차단 — 의존성 설치가 필요하면 `codex_args`에 `-c sandbox_workspace_write.network_access=true`를 넣는다.
+  - **hook 무관:** `codex exec`는 메인 에이전트의 Bash로 실행되므로 verifier_guard(agent_type 스코프)의 대상이 아니며, stop_gate 판정(state.md mtime vs marker)에도 영향이 없다 — 메인 에이전트가 매 사이클 state.md를 갱신하기 때문.
 - loop-run은 시작 시 `.claude/loop/.run-marker`에 session_id + timestamp를 기록한다(`--verify-only` 제외). session_id는 Bash 환경변수 `CLAUDE_CODE_SESSION_ID`에서 획득한다 — 공식 문서에 기재되지 않은 변수라 버전 의존으로 취급하며, 작업 순서 3의 스모크 체크 ③으로 실증한다. 미설정/빈 값이면 `unknown`을 기록한다(hooks 명세 판정 3에서 fail-open).
 - 토큰 기록: 에이전트는 자기 토큰 사용량을 직접 알 수 없다. 기록 단위는 **run(=loop-run 1회 호출)** 이다 — Stop hook은 턴 종료 시 1회만 발화하므로 사이클 단위 측정은 구조적으로 불가능하며, 이를 주장하지 말 것. stop_gate.sh가 hook 입력의 transcript 크기(바이트/4)로 추정치를 계산해 `.last-usage`에 누적값과 직전 기록 대비 delta를 기록하고, 메인 에이전트가 다음 갱신 때 state.md에 "추정치"임을 명시하여 반영한다. 정밀 측정을 주장하지 말 것.
 - 루프 안전장치 (필수):
@@ -162,7 +180,7 @@ loop-init이 생성하는 프로젝트 로컬 파일:
 
 ## 핵심 요구사항
 
-1. Maker/Checker 분리: 구현 에이전트와 verifier는 반드시 별도 sub-agent(위 명세 준수). 모든 기준 통과 전까지 루프 종료 불가 — 단, 안전장치 발동 시는 예외로 중단.
+1. Maker/Checker 분리: maker와 checker는 반드시 별도 실행 주체 — 기본은 교차 모델(maker = `codex exec` 프로세스, checker = Claude verifier sub-agent); `implementer: claude`면 maker = 메인 에이전트, checker = verifier sub-agent(종전 동작). 불변식은 "checker가 maker의 산출물을 독립 컨텍스트에서 채점"이다. 모든 기준 통과 전까지 루프 종료 불가 — 단, 안전장치 발동 시는 예외로 중단.
 2. 스택 불가지론: 루프 로직에 스택 종속 코드 금지. Next.js/TypeScript 프로젝트와 Phaser 3 + Vite 프로젝트 양쪽에서 수정 없이 동작해야 함. 스택 차이는 loop.config.md의 명령어 매핑으로만 흡수.
 3. 검증 가능한 정지 조건만 허용: rubric 기준은 전부 명령어 실행 또는 파일 검사로 판정 가능해야 함. "코드가 깔끔하다" 같은 주관 기준 금지.
 4. 파일 기반 메모리: 루프의 모든 상태는 `.claude/loop/` 디스크에 존재. 다음 세션이 state.md를 진입점으로 `.claude/loop/`만 읽고 멈춘 지점에서 재개 가능해야 함.
@@ -175,9 +193,12 @@ loop-init이 생성하는 프로젝트 로컬 파일:
   - ② 로컬 개발: `claude --plugin-dir ./loop-harness` (절대 경로 권장)
 - 3분 quickstart — 모든 커맨드를 전체 네임스페이스 형태(`/loop-harness:loop-init` 등)로 표기
 - 점진 채택 경로 (`--verify-only` → `--once` → 전체 루프)
-- 토큰 비용 주의사항
+- 교차 모델 maker/checker(Codex) 섹션: 전제조건(codex CLI 설치 + `codex login` 인증), 동작 방식(fresh `codex exec` per cycle, `.codex-log`로 격리·`.codex-last`만 읽음), config 키(`implementer`·`codex_args` 네트워크 예시), 폴백 동작, `implementer: claude`로 종전 동작(Codex 의존성 zero) 선택 가능
+- 토큰 비용 주의사항 — codex 측 사용량은 OpenAI 과금이며 `.last-usage` 추정치에 미포함
 - 경계 원칙 3가지
-- `.claude/loop/` 커밋 정책(임시 파일 제외 전부 커밋 권장)
+- `.claude/loop/` 커밋 정책(임시 파일 제외 전부 커밋 권장 — gitignore 커버 목록에 codex I/O 3종 `.codex-prompt`/`.codex-last`/`.codex-log` 포함)
+- 알려진 한계 1줄: `implementer: codex`일 때 codex는 network 기본 차단 workspace-write 샌드박스에서 실행(`codex_args`로 해제)
+- 알려진 한계 1줄: 대화형 세션 첫 `codex exec` Bash 호출은 일반 권한 프롬프트 발생(설치됐으나 미인증 codex는 버전 체크 통과 후 `codex exec`에서 실패해 claude 폴백)
 - 알려진 한계 1줄: `--resume` 세션에서는 session_id 변화로 Stop gate가 비활성일 수 있음
 - 알려진 한계 1줄: state.md 미갱신 상태로 중단된 loop-run 세션에서는 다음 턴 종료가 1회 차단될 수 있음(state.md 1줄 기록 후 자연 해소. `--verify-only` 턴이면 read-only 보장 — 지속 파일 기준, 임시 파일 `.last-usage`는 범위 밖 — 의 유일한 예외)
 - 알려진 한계(해당 시에만 추가): hook 입력에 `agent_type`이 제공되지 않는(또는 값으로 verifier를 식별할 수 없는) 환경에서는 verifier 쓰기 차단이 `disallowedTools` + 프롬프트 금지 지시로 격하됨
@@ -197,6 +218,7 @@ loop-init이 생성하는 프로젝트 로컬 파일:
      - ② verifier에게 의도적으로 `git commit --allow-empty -m test`를 시도시켜 verifier_guard의 deny가 실제 발화함을 확인(positive test)하고, 동시에 메인 에이전트의 동일 명령은 차단되지 않음을 확인(negative test). **이때 deny가 발화하지 않으면 verifier_guard의 `LOOP_GUARD_DEBUG=1` 로그로 원인을 판별한다(로그 없이는 값 불일치와 필드 부재를 구분할 수 없다): 필드 자체가 부재하면 verifier 명세의 폴백을 즉시 적용하고, 필드는 있으나 값이 부분 일치에 걸리지 않으면 로그의 실제 값으로 매칭 문자열을 조정해 1회 재시도한 뒤 그래도 미발화 시 동일 폴백을 적용한다. 두 경우 모두 positive test 요구는 격하 경로(disallowedTools + 프롬프트 금지 지시 + README 명시 + memory 기록)의 이행 확인으로 대체한다.**
      - ③ Bash 환경에 `CLAUDE_CODE_SESSION_ID`가 존재함을 확인한다. 부재 시 `unknown` 폴백(판정 3 fail-open)이 동작함을 확인하고 README 알려진 한계 1줄 + memory.md `[plugin]` 기록. 존재 시에는 첫 loop-run 턴 종료 후 `.run-marker`의 session_id가 stop hook 입력의 session_id와 일치했는지 `LOOP_GUARD_DEBUG=1` 로그로 대조한다(중첩 headless 세션에서 부모 세션 env 상속으로 오염될 가능성 방어). 불일치 시에도 동일하게 README 한계 1줄 + memory 기록(gate는 미차단 방향으로 비활성)
    - 내용: 빈 Next.js 프로젝트(create-next-app, 네트워크 필요) → loop-init → 소형 기능 1개(예: 헬스체크 API + 테스트)를 goal로 설정 → 루프 실행 → verifier 채점, state/memory/review 갱신 확인
+   - **implementer 스모크 2건:** ⓐ `implementer: codex`에서 `--once` 1사이클 — codex가 수정, verifier가 채점, state/review 갱신, `.codex-prompt`/`.codex-last`/`.codex-log` 생성·untracked 확인, `.codex-log` 내용이 메인 컨텍스트에 로드되지 않음 확인 ⓑ PATH에서 codex를 제거한 세션에서 `--once` — claude 폴백 + state.md·memory.md에 "codex unavailable, fell back to claude" 기록 확인
 4. A 중 세션 재개 테스트: 루프 중간에 자식 프로세스를 timeout/kill로 강제 종료 → 새 headless 세션에서 `/loop-harness:loop-status` → `.claude/loop/`만으로 멈춘 지점부터 재개되는지 확인. 이때 잔존 .run-marker(타 세션 session_id) 때문에 새 세션의 종료가 차단되지 않는지 함께 확인
 5. A 중 안전장치 테스트: 의도적으로 통과 불가능한 기준 1개를 rubric에 넣고, 3회 연속 실패 시 에스컬레이션이 실제 발동하는지 확인. headless에서는 "에스컬레이션 옵션 출력 + state.md 중단 사유 기록 + 종료"가 확인 대상이다. (확인 후 해당 기준 제거)
 6. 도그푸딩 B: Phaser 3 + Vite 프로젝트에서 3번 절차 반복
@@ -209,6 +231,8 @@ loop-init이 생성하는 프로젝트 로컬 파일:
 - [ ] verifier가 독립 컨텍스트에서 채점하며, Write/Edit 미부여 + `disallowedTools` 명시 + `agent_type` 스코프(부분 일치, 필드 부재 시 fail-open) PreToolUse 가드가 실제 구성됨 — verifier의 쓰기성 Bash는 deny로 실차단되고(positive test), 메인 에이전트의 동일 명령은 차단되지 않음을 실증. **단, 스모크 체크에서 `agent_type` 필드 부재 또는 값 불일치(매칭 문자열 조정 1회 재시도 후에도 deny 미발화)가 실증된 환경에서는 폴백(guard 비활성 + disallowedTools + 프롬프트 금지 지시 + README 한계 명시 + memory 기록) 이행으로 이 기준을 충족한다**
 - [ ] verifier가 frontmatter의 4개 도구(Read/Grep/Glob/Bash)를 전부 실사용 가능함 (작업 순서 3 스모크 체크로 실증)
 - [ ] rubric 체크박스/state.md 갱신 주체가 메인 에이전트로 일관 (verifier는 리포트만 반환)
+- [ ] `implementer: codex`에서 구현은 `codex exec`가, 채점은 verifier가 수행하며 `.codex-log`가 메인 컨텍스트에 로드되지 않음 (스모크 ⓐ로 실증)
+- [ ] codex CLI 부재/실패 시 문서화된 폴백(claude로 진행 + state.md·memory.md 기록)이 동작 (스모크 ⓑ로 실증)
 - [ ] rubric의 모든 기준이 기계적으로 검증 가능
 - [ ] 세션 강제 종료 후 재시작 시 `.claude/loop/`만으로 이어서 실행 가능 (작업 순서 4로 실증)
 - [ ] max_iterations + 3회 연속 실패 에스컬레이션이 작동함 — headless 기준: 옵션 출력 + 사유 기록 + 종료 (작업 순서 5로 실증)

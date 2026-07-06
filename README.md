@@ -7,7 +7,7 @@
 
 **Your agent says "done." This plugin makes it prove it.**
 
-loop-harness is a Claude Code plugin for loop engineering: it runs implement→verify cycles and refuses to accept "done" until a machine-verifiable rubric passes — graded by an independent read-only verifier, with disk-based state that survives session death.
+loop-harness is a Claude Code plugin for loop engineering: it runs maker/checker cycles and refuses to accept "done" until a machine-verifiable rubric passes. Implementation is delegated to OpenAI's Codex CLI when available; grading is done by an independent read-only Claude verifier — a cross-model split where the model that writes the code never grades it — with disk-based state that survives session death.
 
 Design invariant: **the plugin is immutable logic** (install once per machine); **all mutable state lives in `.claude/loop/`** (created once per project by `loop-init`).
 
@@ -33,9 +33,9 @@ claude --plugin-dir /absolute/path/to/loop-harness
 ## Quickstart (3 minutes)
 
 1. `cd` into your project and start Claude Code.
-2. Run `/loop-harness:loop-init` — scaffolds `.claude/loop/` (goal, rubric, state, memory, review, config) and auto-detects your test/lint/build commands.
+2. Run `/loop-harness:loop-init` — scaffolds `.claude/loop/` (goal, rubric, state, memory, review, config), auto-detects your test/lint/build commands, and detects whether the Codex CLI is available (sets `implementer:` accordingly).
 3. Edit `.claude/loop/goal.md` and `rubric.md` — every criterion needs a verification command (see the loop-engineering skill's rubric guide).
-4. Run `/loop-harness:loop-run` — cycles implement → verify until the rubric passes or a safety rail triggers.
+4. Run `/loop-harness:loop-run` — cycles implement (Codex or Claude) → verify until the rubric passes or a safety rail triggers.
 5. Run `/loop-harness:loop-status` any time to see progress; it is always read-only.
 
 ## Progressive adoption
@@ -46,6 +46,15 @@ You don't have to run the full loop on day one:
 2. `/loop-harness:loop-run --once` — exactly one implement+verify cycle, then stop.
 3. `/loop-harness:loop-run` — the full loop, with safety rails: `max_iterations` cap (default 10) and escalation after 3 consecutive failures of the same criterion.
 
+## Cross-model maker/checker (Codex)
+
+The implement step can be delegated to OpenAI's Codex CLI, so the model that writes the code is never the model that grades it.
+
+- **Prerequisite:** the `codex` CLI installed and authenticated (`codex login`). `loop-init` runs `codex --version` and sets `implementer: codex` when it succeeds, else `implementer: claude`.
+- **How it works:** each cycle, the main agent rebuilds a prompt from `.claude/loop/` disk state (goal, unresolved criteria with their verification commands, the last verifier failure reasons, distilled rules) and runs one fresh `codex exec --full-auto` — never a resumed session. Codex's full stdout goes to `.claude/loop/.codex-log`; the main agent reads back only `.codex-last` (`--output-last-message`), so Codex output never floods Claude's context. The prompt forbids Codex from touching `.claude/loop/` or running git commit/push.
+- **Config:** `implementer: codex | claude` and an optional `codex_args:` passthrough in `loop.config.md` (e.g. `-m <model>`, or `-c sandbox_workspace_write.network_access=true` to allow network — the workspace-write sandbox disables it by default).
+- **Fallback:** if `codex --version` fails at run start, the whole run proceeds as Claude with a note in `state.md`/`memory.md`. If a `codex exec` call exits non-zero, it retries once, then falls back to Claude for that cycle. Set `implementer: claude` for the pre-0.2.0 behavior — no Codex dependency at all.
+
 ## Token cost
 
 Loops, verifiers and subagents consume tokens — always weigh cost against the task:
@@ -53,6 +62,7 @@ Loops, verifiers and subagents consume tokens — always weigh cost against the 
 - The verifier runs once per cycle (phase gate), never per file edit.
 - The `explorer` scout runs on haiku (cheap); use it instead of broad reading.
 - Each run's token figure is estimated by the stop gate into `.claude/loop/.last-usage` (transcript-size heuristic — an estimate, never billing data) and surfaced in `state.md` / `loop-status`.
+- With `implementer: codex`, Codex output is kept out of Claude's context, and Codex-side usage is billed by OpenAI — it is **not** included in the `.last-usage` estimate.
 - Start with `--verify-only` or `--once` when unsure a full loop is worth it.
 
 ## Boundary principles
@@ -63,10 +73,12 @@ Loops, verifiers and subagents consume tokens — always weigh cost against the 
 
 ## `.claude/loop/` commit policy
 
-Commit everything except hidden temp files. `loop-init` adds `.claude/loop/.*` to your `.gitignore` (covers `.run-marker`, `.last-usage`, `.hook-debug.log`); the visible files — goal, rubric, state, memory, review, config — are meant to be committed for team sharing and session recovery.
+Commit everything except hidden temp files. `loop-init` adds `.claude/loop/.*` to your `.gitignore` (covers `.run-marker`, `.last-usage`, `.hook-debug.log`, and the Codex I/O files `.codex-prompt`, `.codex-last`, `.codex-log`); the visible files — goal, rubric, state, memory, review, config — are meant to be committed for team sharing and session recovery.
 
 ## Known limitations
 
 - Claude Code versions that ship no dedicated Grep/Glob tools (observed in v2.1.201): the verifier and explorer fall back to read-only Bash equivalents (`grep`/`find`). The verifier remains hook-guarded against writes; the explorer's read-only property is prompt-enforced only.
 - In `claude --resume` sessions the session id changes, so the Stop gate can be inactive for that session (fails open — it never blocks by mistake in this case).
 - If a loop-run dies before updating `state.md`, the next turn-end in that same session is blocked once; appending the single line the gate asks for resolves it permanently. If that turn happens to be `--verify-only`, this one line is the only exception to its read-only guarantee (the guarantee covers persistent, committable files; the hidden temp `.last-usage` is out of scope and updates whenever a same-session marker exists).
+- With `implementer: codex`, Codex runs in a workspace-write sandbox with network **disabled** by default; goals that need to install dependencies fail unless you allow network via `codex_args` (`-c sandbox_workspace_write.network_access=true`).
+- In an interactive session, the first `codex exec` Bash call triggers a normal permission prompt; headless runs need a permission mode that allows it (an installed-but-unauthenticated Codex passes the version check but fails at `codex exec`, which then falls back to Claude).

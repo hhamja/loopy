@@ -1,6 +1,6 @@
 ---
 name: loop-engineering
-description: Loop engineering method — machine-verifiable stop conditions, maker/checker separation via a verifier subagent, disk-based memory in .claude/loop/. Consult when designing or running agent loops.
+description: Loop engineering method — machine-verifiable stop conditions, maker/checker separation (Codex CLI or Claude as maker, a verifier subagent as checker), disk-based memory in .claude/loop/. Consult when designing or running agent loops.
 ---
 
 # Loop Engineering
@@ -9,7 +9,7 @@ Design the system that prompts the agent instead of prompting the agent each tur
 
 ## Three principles (non-negotiable)
 
-1. **The agent that wrote the code must not grade it.** Grading belongs to the `verifier` subagent: fresh context, read-only, `rubric.md` as its only standard. It returns a report; the main agent applies it to the loop files.
+1. **The maker must not grade its own work.** Implementation belongs to the configured implementer (`implementer:` in loop.config.md — the Codex CLI when available, else the main agent); grading belongs to the `verifier` subagent: fresh context, read-only, `rubric.md` as its only standard. It returns a report; the main agent applies it to the loop files.
 2. **"Done" is a claim, not a proof.** Every stop condition must be machine-checkable: a command that exits 0, a file that exists, an output that matches. Subjective criteria are banned from rubric.md.
 3. **Memory lives on disk, not in context.** Everything the next session needs is in `.claude/loop/` — `state.md` is the entry point; a fresh session reads that directory and resumes where the loop stopped.
 
@@ -19,7 +19,7 @@ Plugin = immutable logic (installed once per machine). `.claude/loop/` = mutable
 
 ## Cycle shape
 
-Implement → verifier grades ONCE at cycle end (phase gate — never per file edit) → main agent updates rubric checkboxes, rewrites state.md, records memory per protocol, overwrites review.md. Safety rails are always on: `max_iterations` cap and 3-consecutive-failure escalation. An unbounded "repeat until pass" loop is forbidden.
+Implement (by the configured implementer — a fresh `codex exec` per cycle when `implementer: codex`, prompt rebuilt from disk state; never a resumed session) → verifier grades ONCE at cycle end (phase gate — never per file edit) → main agent updates rubric checkboxes, rewrites state.md, records memory per protocol, overwrites review.md. Safety rails are always on: `max_iterations` cap and 3-consecutive-failure escalation. An unbounded "repeat until pass" loop is forbidden.
 
 ## Cheap reconnaissance
 
@@ -33,4 +33,4 @@ Use the `explorer` agent (haiku, read-only) when a cycle needs codebase scouting
 
 ## Cost discipline
 
-Loops, verifiers and subagents burn tokens. Prefer `--verify-only` (grade once) or `--once` (single cycle) before committing to a full run. Deterministic work (budget counting, hook verdicts, state parsing, token estimation) belongs in scripts, not prompts.
+Loops, verifiers and subagents burn tokens. Prefer `--verify-only` (grade once) or `--once` (single cycle) before committing to a full run. Deterministic work (budget counting, hook verdicts, state parsing, token estimation) belongs in scripts, not prompts. Codex output never enters main context: its stdout goes to `.claude/loop/.codex-log`; the main agent reads only `.codex-last`. Codex-side usage is billed by OpenAI and absent from the token estimate.

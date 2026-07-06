@@ -1,8 +1,10 @@
-# Mission: Loop Harness — Build a Universal Loop-Engineering Claude Code Plugin (v3.4.4 final)
+# Mission: Loop Harness — Build a Universal Loop-Engineering Claude Code Plugin (v3.5.0 final)
 
-[**English**](mission-v3.4.4.en.md) | [한국어](mission-v3.4.4.md)
+[**English**](mission-v3.5.0.en.md) | [한국어](mission-v3.5.0.md)
 
 Copy everything below and paste it into Claude Code.
+
+**v3.4.4 → v3.5.0 summary of changes:** Split the implementer across models — maker = OpenAI Codex CLI (`codex exec`), checker = Claude verifier. ① loop-run's implement step branches on `implementer: codex|claude` in loop.config.md: when codex, the main agent rebuilds a prompt each cycle from disk state (goal + unresolved rubric criteria with their verification commands + last verifier failure reasons + memory.md distilled rules) and runs `codex exec --full-auto` in one Bash call. No `resume --last` session reuse — an extension of the "memory lives on disk, not in context" principle to the implementer ② Context hygiene: Codex's full stdout is redirected to `.claude/loop/.codex-log`, and the main agent reads only `.codex-last` (written by `--output-last-message`). The prompt is written to `.codex-prompt` (three new hidden temp files — covered by the existing `.claude/loop/.*` gitignore rule) ③ Two-tier fallback: loop-init detects via `codex --version` and records the implementer default, and loop-run re-checks once at start — if the CLI is unavailable, the whole run proceeds as claude with a note in state.md/memory.md; a non-zero `codex exec` exit retries the identical command once, then falls back to claude for that cycle only (needed because an installed-but-unauthenticated CLI passes preflight) ④ Fixed Codex prompt guardrails: no modifying `.claude/loop/` (loop state is owned by the Claude orchestrator), no git commit/push (commits are a human's job), change only toward the listed criteria and minimally, end the reply with the list of changed files ⑤ Added `implementer` and `codex_args` (model/network passthrough) keys to loop.config.md — "the only stack-dependent point" broadens to "the only stack- and environment-dependent point." Core requirement 1's maker/checker separation generalizes from "separate sub-agents" to "separate execution actors (a cross-model process, or a main/sub-agent split)" — the invariant that the checker grades the maker's output in an independent context is unchanged. verifier_guard (agent_type scope) and stop_gate logic are unchanged (codex runs as main-agent Bash). Plugin version 0.1.0 → 0.2.0.
 
 **v3.4.3 → v3.4.4 summary of changes:** Three fixes from empirical review (measured on Claude Code v2.1.201) — ① Corrected the dogfooding permission mode: headless (`-p`) cannot show permission prompts, so under `acceptEdits` **every Bash tool call is denied** (empirically confirmed — the loop's test runs, verifier grading, and smoke checks are all impossible; smoke check ② additionally produced a false positive where the permission-layer denial was misread as a guard deny) → replaced with `--permission-mode bypassPermissions` (restricted to throwaway dogfooding projects). Hook denies were empirically confirmed to fire independently of permission mode, so smoke check ②'s verdict premise still holds ② Extended the verifier_guard fallback trigger — previously only "`agent_type` field absent" was defined; now it also covers "field present but value mismatch (deny non-firing demonstrated via the debug log, after one retry with an adjusted match string)": this removes the deadlock path where, in a value-mismatch environment, neither branch of the acceptance criterion (actual blocking / field-absent fallback) could be satisfied. Acceptance criteria, smoke check ②, and the README limitation wording are synchronized ③ Scoped the `--verify-only` read-only guarantee wording to "a fresh session with no residual marker" — if a marker persists in the same session, even a verify-only turn's termination reaches check 4 and updates `.last-usage`, so the "one line in state.md is the only exception" wording was self-contradictory (mechanism unchanged — the guarantee is defined over persistent files (commit targets), with hidden temp files explicitly out of scope). No structural design changes (no new files or hook events).
 
@@ -31,7 +33,7 @@ Copy everything below and paste it into Claude Code.
 Loop engineering: instead of prompting the agent directly every turn, you design "a system that prompts the agent."
 
 - Loop = a recursive structure that repeats execute → collect feedback → self-correct until a verifiable stop condition (goal/rubric) is met
-- Six components: Automations (commands/hooks), Worktrees (parallel isolation), Skills (externalized project knowledge), Plugins (distribution unit), Sub-agents (maker/checker separation), Memory (disk-based state)
+- Six components: Automations (commands/hooks), Worktrees (parallel isolation), Skills (externalized project knowledge), Plugins (distribution unit), Sub-agents/external CLI (maker/checker separation — the maker can be a cross-model process such as the Codex CLI), Memory (disk-based state)
 - Three core principles:
   1. The agent that wrote the code must not grade its own homework → an independent-context verifier sub-agent grades
   2. "Done" is a claim, not a proof → stop conditions must be mechanically checkable (tests pass, lint clean, files exist, etc.)
@@ -55,7 +57,7 @@ loop-harness/
 ├── CHANGELOG.md
 ├── README.md                           # See "README requirements" below
 ├── commands/                           # Everything below is relative to the plugin root
-│   ├── loop-init.md                    # Scaffolds .claude/loop/ + auto-detects the stack.
+│   ├── loop-init.md                    # Scaffolds .claude/loop/ + auto-detects the stack + detects the implementer (codex --version).
 │   │                                   #   Interactive: ask the user when detection fails
 │   │                                   #   Non-interactive (-p): never ask — detect from package.json scripts,
 │   │                                   #   pyproject.toml, Makefile, Cargo.toml, and other ecosystem manifests;
@@ -97,14 +99,17 @@ Project-local files created by loop-init:
 ├── memory.md        # 5-stage protocol log. Distilled rules stay at the top; compress raw fail logs past 200 lines
 ├── review.md        # Human-facing review summary of the latest cycle (changed files, key changes, risks)
 │                    #   — overwritten every cycle
-├── loop.config.md   # test/lint/build commands + max_iterations (default 10) + escalation policy
-│                    #   — the only stack-dependent point
+├── loop.config.md   # test/lint/build commands + implementer (codex|claude) + codex_args + max_iterations (default 10)
+│                    #   + escalation policy — the only stack- and environment-dependent point
 ├── .run-marker      # Written at loop-run start: session_id + timestamp. --verify-only does NOT write it.
 │                    #   session_id is obtained from $CLAUDE_CODE_SESSION_ID (see "Loop execution model")
 │                    #   Not deleted after normal completion (intended behavior — see hooks spec). Temp file; never commit
-└── .last-usage      # Per-run token estimate written by stop_gate.sh (cumulative transcript size + delta vs. previous).
-                     #   Subsequent non-loop turns in the same session also reach check 4, so non-loop usage
-                     #   can mix into the delta (accepted as a limitation of the estimate). Temp file; never commit
+├── .last-usage      # Per-run token estimate written by stop_gate.sh (cumulative transcript size + delta vs. previous).
+│                    #   Subsequent non-loop turns in the same session also reach check 4, so non-loop usage
+│                    #   can mix into the delta (accepted as a limitation of the estimate). Temp file; never commit
+├── .codex-prompt    # When implementer: codex, the codex implement prompt, rewritten every cycle. Temp file; never commit
+├── .codex-last      # codex exec --output-last-message output — the only codex output the main agent reads. Never commit
+└── .codex-log       # codex exec full stdout/stderr — for human debugging, main agent must NOT read. Temp file; never commit
 ```
 
 - loop-init adds `.claude/loop/.*` (hidden temp files) to .gitignore. Committing the remaining files is the recommended default (team sharing, session recovery); the README states this policy.
@@ -129,7 +134,20 @@ Project-local files created by loop-init:
 
 - Default behavior: repeat cycles until every rubric criterion passes or a safety rail triggers.
 - Options: `--once` = run exactly 1 cycle (incremental adoption, cost control). `--verify-only` = run verifier grading once with no implementation and print the report (for reviewing existing code; the entry point of incremental adoption). **`--verify-only` is read-only end to end: it writes or modifies no files, including `.run-marker`** (measured against a fresh session with no residual marker — if a marker persists in the same session, stop_gate updates `.last-usage` at turn end; see the hooks spec and known limitation 2) — writing the marker would make Stop gate check 4 block verify-only itself.
-- 1 cycle = implement → verifier grading (phase gate, once at cycle end only) → main agent updates rubric/state/memory/review.
+- 1 cycle = implement (implementer branch: `codex exec` or the main agent) → verifier grading (phase gate, once at cycle end only) → main agent updates rubric/state/memory/review.
+- **Implementer spec (implementer):** decided by `implementer:` in loop.config.md (missing key = claude).
+  - **claude (or any fallback):** the main agent implements the unresolved criteria directly (the previous behavior).
+  - **codex:** each cycle the main agent rebuilds the prompt (goal + unresolved criteria verbatim with their verification commands + last verifier failure reasons + memory.md distilled rules + fixed guardrails), writes it to `.claude/loop/.codex-prompt`, and runs it in one Bash call (with a generous timeout — e.g. 10 min; the default 2-min Bash timeout would kill Codex mid-edit):
+    ```bash
+    codex exec --full-auto --skip-git-repo-check --output-last-message .claude/loop/.codex-last - < .claude/loop/.codex-prompt > .claude/loop/.codex-log 2>&1
+    ```
+    (Splice a non-empty `codex_args` in before the `-`.) `--full-auto` = workspace-write sandbox (never bypass). `--skip-git-repo-check` = avoids a hard-fail on non-git projects. The prompt is passed on stdin (`-`) to avoid multi-line quoting.
+  - **Fresh per cycle:** no `resume`; the prompt is rebuilt from disk state every time — the "memory lives on disk" principle.
+  - **Context hygiene:** the main agent reads only `.codex-last`. It never reads `.codex-log` (full output) — prevents context pollution.
+  - **Fixed guardrails (in the prompt):** no modifying `.claude/loop/`, no git commit/push, change only toward the listed criteria minimally, end the reply with the list of changed files.
+  - **Two-tier fallback:** ① preflight — if `codex --version` fails, the whole run proceeds as claude + recorded in state.md/memory.md. ② non-zero `codex exec` exit — retry the identical command once; if it still fails, implement that cycle as claude + record (codex stays the implementer for the next cycle). An installed-but-unauthenticated codex passes preflight, so ② is required.
+  - **Sandbox network:** the workspace-write sandbox disables network by default — to install dependencies, put `-c sandbox_workspace_write.network_access=true` in `codex_args`.
+  - **Hook-independent:** `codex exec` runs as the main agent's Bash, so it is not a target of verifier_guard (agent_type scope) and does not affect the stop_gate verdict (state.md mtime vs. marker) — the main agent still updates state.md every cycle.
 - At start, loop-run writes session_id + timestamp to `.claude/loop/.run-marker` (except `--verify-only`). session_id is obtained from the Bash environment variable `CLAUDE_CODE_SESSION_ID` — treated as version-dependent since it is not in the official docs, and demonstrated by smoke check ③ in work-order step 3. If unset/empty, record `unknown` (fail-open at check 3 of the hooks spec).
 - Token recording: an agent cannot directly know its own token usage. The unit of record is a **run (= one loop-run invocation)** — the Stop hook fires only once at turn end, so per-cycle measurement is structurally impossible; do not claim it. stop_gate.sh computes an estimate from the hook input's transcript size (bytes/4), writes the cumulative value and the delta vs. the previous record to `.last-usage`, and the main agent folds it into state.md at the next update, explicitly labeled an "estimate." Do not claim precise measurement.
 - Loop safety rails (required):
@@ -164,7 +182,7 @@ Project-local files created by loop-init:
 
 ## Core requirements
 
-1. Maker/Checker separation: the implementing agent and the verifier must be separate sub-agents (per the spec above). The loop must not end before all criteria pass — except a stop when a safety rail triggers.
+1. Maker/Checker separation: the maker and checker must be separate execution actors — by default cross-model (maker = a `codex exec` process, checker = the Claude verifier sub-agent); with `implementer: claude`, maker = the main agent, checker = the verifier sub-agent (the previous behavior). The invariant is "the checker grades the maker's output in an independent context." The loop must not end before all criteria pass — except a stop when a safety rail triggers.
 2. Stack agnosticism: no stack-dependent code in the loop logic. Must work unmodified on both a Next.js/TypeScript project and a Phaser 3 + Vite project. Stack differences are absorbed solely by the command mapping in loop.config.md.
 3. Only verifiable stop conditions: every rubric criterion must be decidable by running a command or inspecting files. Subjective criteria like "the code is clean" are forbidden.
 4. File-based memory: all loop state lives on disk in `.claude/loop/`. The next session must be able to resume from where it stopped by reading only `.claude/loop/`, with state.md as the entry point.
@@ -177,9 +195,12 @@ Project-local files created by loop-init:
   - ② local development: `claude --plugin-dir ./loop-harness` (absolute path recommended)
 - 3-minute quickstart — all commands written in full namespaced form (`/loop-harness:loop-init`, etc.)
 - Incremental adoption path (`--verify-only` → `--once` → full loop)
-- Token-cost caveats
+- Cross-model maker/checker (Codex) section: prerequisites (codex CLI installed + `codex login`), how it works (fresh `codex exec` per cycle, isolated via `.codex-log` and only `.codex-last` read back), config keys (`implementer`/`codex_args` with the network example), fallback behavior, and that `implementer: claude` gives the previous behavior (zero Codex dependency)
+- Token-cost caveats — Codex-side usage is billed by OpenAI and not included in the `.last-usage` estimate
 - The three boundary principles
-- `.claude/loop/` commit policy (commit everything except temp files, recommended)
+- `.claude/loop/` commit policy (commit everything except temp files, recommended — the gitignore-covered list includes the three codex I/O files `.codex-prompt`/`.codex-last`/`.codex-log`)
+- One-line known limitation: with `implementer: codex`, Codex runs in a workspace-write sandbox with network disabled by default (allow via `codex_args`)
+- One-line known limitation: in an interactive session the first `codex exec` Bash call triggers a normal permission prompt (an installed-but-unauthenticated codex passes the version check then fails at `codex exec`, falling back to claude)
 - One-line known limitation: in `--resume` sessions the Stop gate may be inactive due to session_id changes
 - One-line known limitation: in a loop-run session that stopped without updating state.md, the next turn's termination may be blocked once (self-resolves after a one-line state.md write. If that turn is `--verify-only`, this is the sole exception to the read-only guarantee — defined over persistent files; the temp file `.last-usage` is out of scope)
 - Known limitation (add only if applicable): in environments where the hook input provides no `agent_type` (or its value cannot identify the verifier), verifier write-blocking is downgraded to `disallowedTools` + prompt prohibition instructions
@@ -199,6 +220,7 @@ Project-local files created by loop-init:
      - ② Have the verifier deliberately attempt `git commit --allow-empty -m test` to confirm verifier_guard's deny actually fires (positive test), and simultaneously confirm the main agent's identical command is NOT blocked (negative test). **If deny does not fire, determine the cause via verifier_guard's `LOOP_GUARD_DEBUG=1` log (without the log you cannot distinguish a value mismatch from an absent field): if the field itself is absent, apply the verifier-spec fallback immediately; if the field exists but the value does not hit the substring match, adjust the match string to the actual value from the log and retry once — if it still does not fire, apply the same fallback. In both cases the positive-test requirement is replaced by confirming execution of the downgrade path (disallowedTools + prompt prohibition + README note + memory record).**
      - ③ Confirm `CLAUDE_CODE_SESSION_ID` exists in the Bash environment. If absent, confirm the `unknown` fallback (check 3 fail-open) works, and add the one-line README known limitation + a `[plugin]` record in memory.md. If present, after the first loop-run turn ends, cross-check via the `LOOP_GUARD_DEBUG=1` log that `.run-marker`'s session_id matched the stop hook input's session_id (defends against contamination from parent-session env inheritance in nested headless sessions). On mismatch, likewise add the one-line README limitation + memory record (the gate goes inactive in the fail-open direction)
    - Content: empty Next.js project (create-next-app, network required) → loop-init → set one small feature as the goal (e.g., health-check API + tests) → run the loop → confirm verifier grading and state/memory/review updates
+   - **Two implementer smoke checks:** ⓐ with `implementer: codex`, one `--once` cycle — codex edits, the verifier grades, state/review update, `.codex-prompt`/`.codex-last`/`.codex-log` are created and untracked, and `.codex-log` content is confirmed NOT loaded into main context ⓑ in a session with codex removed from PATH, `--once` — confirm the claude fallback + a "codex unavailable, fell back to claude" record in state.md/memory.md
 4. During A, session-resume test: force-kill the child process mid-loop with timeout/kill → in a new headless session run `/loop-harness:loop-status` → confirm it resumes from the stopping point using `.claude/loop/` alone. Also confirm the residual .run-marker (another session's session_id) does not block the new session's termination
 5. During A, safety-rail test: deliberately add 1 impossible-to-pass criterion to the rubric and confirm escalation actually triggers after 3 consecutive failures. In headless, the check target is "escalation options printed + stop reason recorded in state.md + exit." (Remove the criterion afterwards)
 6. Dogfooding B: repeat the step 3 procedure on a Phaser 3 + Vite project
@@ -211,6 +233,8 @@ Project-local files created by loop-init:
 - [ ] The verifier grades in an independent context, with Write/Edit not granted + `disallowedTools` declared + an `agent_type`-scoped (substring match, fail-open when the field is absent) PreToolUse guard actually configured — the verifier's write-leaning Bash is actually blocked with a deny (positive test) and the main agent's identical command is not blocked, both demonstrated. **However, in environments where the smoke check demonstrates an absent `agent_type` field or a value mismatch (deny still not firing after one retry with an adjusted match string), this criterion is satisfied by executing the fallback (guard inactive + disallowedTools + prompt prohibition + README limitation note + memory record)**
 - [ ] The verifier can actually use all 4 frontmatter tools (Read/Grep/Glob/Bash) (demonstrated by the work-order step 3 smoke check)
 - [ ] Rubric checkbox/state.md updates are consistently performed by the main agent (the verifier only returns reports)
+- [ ] With `implementer: codex`, implementation is done by `codex exec` and grading by the verifier, and `.codex-log` is not loaded into main context (demonstrated by smoke check ⓐ)
+- [ ] On codex CLI absence/failure, the documented fallback (proceed as claude + record in state.md/memory.md) works (demonstrated by smoke check ⓑ)
 - [ ] Every rubric criterion is mechanically verifiable
 - [ ] After a session force-kill and restart, execution can continue from `.claude/loop/` alone (demonstrated by work-order step 4)
 - [ ] max_iterations + 3-consecutive-failure escalation works — headless: options printed + reason recorded + exit (demonstrated by work-order step 5)
