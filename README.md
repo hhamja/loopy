@@ -1,5 +1,7 @@
 # loop-harness
 
+**English** | [한국어](README.ko.md)
+
 A Claude Code plugin for loop engineering: implement→verify cycles with machine-verifiable stop conditions, an independent read-only verifier, and disk-based state that survives session death.
 
 Design invariant: **the plugin is immutable logic** (install once per machine); **all mutable state lives in `.claude/loop/`** (created once per project by `loop-init`).
