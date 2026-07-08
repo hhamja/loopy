@@ -130,9 +130,35 @@ test_budget() {
   assert_contains "$out" "BUDGET OK" "repo budget: BUDGET OK"
 }
 
+# ── gen_ci.sh: golden — detected stack facts -> pinned CI workflow ──
+gen_ci() { bash "$SCRIPTS/gen_ci.sh" "$@"; }
+
+test_gen_ci() {
+  printf '\ngen_ci.sh\n'
+
+  gen_ci --pm pnpm --test 'pnpm test' --lint 'pnpm lint' --build 'pnpm build' \
+    | diff -u "$ROOT/tests/golden/node-pnpm-full.yml" - >/dev/null
+  assert_exit 0 "$?" "golden: node-pnpm-full"
+
+  gen_ci --pm npm --test 'npm test' \
+    | diff -u "$ROOT/tests/golden/node-npm-todo.yml" - >/dev/null
+  assert_exit 0 "$?" "golden: node-npm-todo (TODO steps commented out)"
+
+  gen_ci --pm bun --test 'bun test' --build 'bun run build' \
+    | diff -u "$ROOT/tests/golden/node-bun.yml" - >/dev/null
+  assert_exit 0 "$?" "golden: node-bun"
+
+  gen_ci --test x >/dev/null 2>&1
+  assert_exit 2 "$?" "missing --pm: exit 2"
+
+  gen_ci --pm cargo >/dev/null 2>&1
+  assert_exit 2 "$?" "unsupported --pm: exit 2"
+}
+
 test_verifier_guard
 test_stop_gate
 test_budget
+test_gen_ci
 
 printf '\n%s passed, %s failed\n' "$pass" "$fail"
 [ "$fail" -eq 0 ]
