@@ -54,4 +54,11 @@ Spawn the `verifier` agent with the instruction "grade `.claude/loop/rubric.md`"
   - An unbounded "repeat until pass" loop is forbidden.
 - `--once`: stop after one full cycle regardless of outcome (state/memory/review still updated).
 
+## Decision gates
+
+Classify every side-effecting action by reversibility × impact before doing it (skill reference: `references/decision-gates.md`):
+
+- **Reversible/local** (edits, tests, local commits, pushing a *work* branch, draft PR): act or delegate to the implementer/`explorer` immediately. Never pause to ask "shall I start?" or "proceed to the next step?" — re-confirming a reversible step is over-confirmation.
+- **Irreversible or high-impact** (merge to a protected branch, release/publish, force-push, tag push, external send, cost, catastrophic delete): a human gate. `decision_gate.sh` blocks these mechanically inside a loop project. Stop, write the context to `review.md`, then — interactive: ask the user for approval; headless: record the pending T2 action in state.md and end the turn. Only on explicit human approval, write `.claude/loop/.gate-approved` (`action=<class>`, `session_id`, `ts=<epoch>`), retry the command, and remove the marker immediately. Never forge the marker to bypass the gate.
+
 Token note: you cannot measure your own usage. `.last-usage` (written by the stop gate at turn end) covers the PREVIOUS run; report it as an estimate, never as a precise figure.

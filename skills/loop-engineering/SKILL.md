@@ -21,6 +21,10 @@ Plugin = immutable logic (installed once per machine). `.claude/loop/` = mutable
 
 Implement (by the configured implementer — a fresh `codex exec` per cycle when `implementer: codex`, prompt rebuilt from disk state; never a resumed session) → verifier grades ONCE at cycle end (phase gate — never per file edit) → main agent updates rubric checkboxes, rewrites state.md, records memory per protocol, overwrites review.md. Safety rails are always on: `max_iterations` cap and 3-consecutive-failure escalation. An unbounded "repeat until pass" loop is forbidden.
 
+## Decision gates
+
+Before a side-effecting action, classify by reversibility × impact. Reversible/local (edits, tests, local commits, work-branch push) → act or delegate, never re-ask. Irreversible or high-impact (merge to a protected branch, release, publish, external send, cost, destructive delete) → stop at a human gate. `decision_gate.sh` enforces this class mechanically. The test is "can this be undone?", not "may I ask?".
+
 ## Cheap reconnaissance
 
 Use the `explorer` agent (haiku, read-only) when a cycle needs codebase scouting before implementing — file maps, symbol locations, conventions. Don't spend main-context tokens on broad reading.
@@ -30,6 +34,7 @@ Use the `explorer` agent (haiku, read-only) when a cycle needs codebase scouting
 - Writing or fixing rubric criteria, or a criterion feels subjective → `references/rubric-guide.md`
 - Recording a failure, deciding what to distill, `[plugin]` vs `[project]` tagging → `references/memory-protocol.md`
 - Running parallel loop tasks in git worktrees, merging results → `references/worktree-guide.md`
+- Classifying an action, or wiring the gate hook/config → `references/decision-gates.md`
 
 ## Cost discipline
 
