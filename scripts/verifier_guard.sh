@@ -1,12 +1,12 @@
 #!/usr/bin/env bash
 # loop-harness verifier guard (PreToolUse hook, matcher: Bash).
 #
-# Scope: acts ONLY when the hook input's agent_type contains "verifier" (partial
-# match — survives namespace prefixes like "loop-harness:verifier"). A missing
+# Scope: acts ONLY when the hook input's agent_type contains "verifier" or "auditor"
+# (partial match — survives namespace prefixes like "loop-harness:verifier"). A missing
 # agent_type field, a non-matching value, or any parse doubt -> allow (fail-open).
 # The main agent and every other agent are NEVER blocked here.
 #
-# Invariant enforced: the verifier must not modify source or loop state files.
+# Invariant enforced: these read-only checkers must not modify source or loop state files.
 # Incidental writes by test/build runners (cache, coverage) are out of scope.
 #
 # Deny response uses the official hooks schema (hookSpecificOutput.permissionDecision
@@ -34,8 +34,8 @@ else
 fi
 
 case "$AGENT_TYPE" in
-  *verifier*) : ;;   # inspect below
-  *) exit 0 ;;       # fail-open: missing field or other agent -> never block
+  *verifier*|*auditor*) : ;;   # inspect below (both are read-only checkers)
+  *) exit 0 ;;                 # fail-open: missing field or other agent -> never block
 esac
 
 # --- extract the Bash command (verifier only from here on) ---
@@ -56,7 +56,7 @@ fi
 
 deny() {
   # $1 is a fixed tag chosen below — safe to interpolate into JSON
-  printf '{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"deny","permissionDecisionReason":"loop-harness verifier_guard: the verifier is read-only — blocked write-capable Bash (%s). Return a FAIL with evidence instead of modifying anything."}}\n' "$1"
+  printf '{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"deny","permissionDecisionReason":"loop-harness verifier_guard: this read-only checker (verifier/auditor) must not modify files — blocked write-capable Bash (%s). Report a FAIL/finding with evidence instead of modifying anything."}}\n' "$1"
   exit 0
 }
 

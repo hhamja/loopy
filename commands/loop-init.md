@@ -114,4 +114,10 @@ implementer: <codex if `codex --version` succeeded, else claude>
 codex_args: <empty — optional extra `codex exec` flags, e.g. `-m <model>` or `-c sandbox_workspace_write.network_access=true` to allow network>
 max_iterations: 10
 escalation: after 3 consecutive failures of the same criterion, stop and present 2-3 options
+
+protected_branches: main master
+gate_push: false
+extra_gates:
 ```
+
+The last three keys drive the decision gate (`decision_gate.sh`, see the loop-engineering skill's `references/decision-gates.md`): pushing to `protected_branches` — or every push when `gate_push: true` — plus release/publish/merge are treated as irreversible (T2) and require human approval; `extra_gates` is an optional `grep -E` regex for project-specific T2 commands. Absent keys fall back to these defaults, so existing loops need no change.

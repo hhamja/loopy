@@ -36,6 +36,9 @@ test_verifier_guard() {
   assert_exit 0 "$rc" "verifier rm: exit 0 (deny parsed only on exit 0)"
   assert_contains "$out" '"permissionDecision":"deny"' "verifier rm: deny"
 
+  out="$(guard '{"agent_type":"loop-harness:auditor","tool_input":{"command":"rm -rf x"}}')"
+  assert_contains "$out" '"deny"' "auditor rm: deny (read-only checker)"
+
   out="$(guard '{"agent_type":"verifier","tool_input":{"command":"git commit -m x"}}')"
   assert_contains "$out" '"deny"' "verifier git commit: deny"
 
@@ -121,6 +124,87 @@ test_stop_gate() {
   rm -rf "$tmp"
 }
 
+# ── decision_gate.sh: stdin JSON + fixture cwd -> stdout (deny JSON or empty), exit 0 ──
+# Gates T2 (irreversible/high-impact) commands inside a loop project; reversible/local
+# and non-loop commands pass. Each case builds a throwaway loop project.
+dgate() { printf '{"cwd":"%s","session_id":"S1","tool_input":{"command":"%s"}}' "$1" "$2" | bash "$SCRIPTS/decision_gate.sh"; }
+
+test_decision_gate() {
+  printf '\ndecision_gate.sh\n'
+  local tmp out rc
+
+  # not a loop project -> never gate
+  tmp="$(mktemp -d)"
+  out="$(dgate "$tmp" "git push origin main")"; rc=$?
+  assert_exit 0 "$rc" "no loop dir: exit 0"
+  assert_empty "$out" "no loop dir: no gate"
+  rm -rf "$tmp"
+
+  # loop project, default config (protected: main master, gate_push: false)
+  tmp="$(mktemp -d)"; mkdir -p "$tmp/.claude/loop"
+  printf 'protected_branches: main master\ngate_push: false\n' > "$tmp/.claude/loop/loop.config.md"
+
+  out="$(dgate "$tmp" "git push origin feature/x")"; rc=$?
+  assert_exit 0 "$rc" "work-branch push: exit 0"
+  assert_empty "$out" "work-branch push: allow"
+
+  out="$(dgate "$tmp" "git push origin main")"
+  assert_contains "$out" '"deny"' "push to protected: deny"
+
+  out="$(dgate "$tmp" "git push --force origin feature/x")"
+  assert_contains "$out" '"deny"' "force-push: deny"
+
+  out="$(dgate "$tmp" "git push --tags")"
+  assert_contains "$out" '"deny"' "tag push: deny"
+
+  out="$(dgate "$tmp" "npm publish")"
+  assert_contains "$out" '"deny"' "npm publish: deny"
+
+  out="$(dgate "$tmp" "gh pr merge 5 --squash")"
+  assert_contains "$out" '"deny"' "gh pr merge: deny"
+
+  out="$(dgate "$tmp" "eas submit --platform ios")"
+  assert_contains "$out" '"deny"' "eas submit: deny"
+
+  out="$(dgate "$tmp" "rm -rf /")"
+  assert_contains "$out" '"deny"' "catastrophic rm: deny"
+
+  out="$(dgate "$tmp" "git commit -m x")"
+  assert_empty "$out" "local commit: allow"
+
+  out="$(dgate "$tmp" "pnpm test 2>&1")"
+  assert_empty "$out" "run tests: allow"
+
+  out="$(dgate "$tmp" "rm -rf node_modules")"
+  assert_empty "$out" "rm local dir: allow"
+
+  out="$(dgate "$tmp" "git push origin mainline")"
+  assert_empty "$out" "push to mainline (not protected): allow"
+
+  # gate_push:true raises every push to T2
+  printf 'protected_branches: main\ngate_push: true\n' > "$tmp/.claude/loop/loop.config.md"
+  out="$(dgate "$tmp" "git push origin feature/x")"
+  assert_contains "$out" '"deny"' "gate_push=true: work-branch push denied"
+  printf 'protected_branches: main master\ngate_push: false\n' > "$tmp/.claude/loop/loop.config.md"
+
+  # valid approval marker bypasses the matching class, one-shot semantics
+  printf 'action=push\nsession_id=S1\nts=%s\n' "$(date +%s)" > "$tmp/.claude/loop/.gate-approved"
+  out="$(dgate "$tmp" "git push origin main")"
+  assert_empty "$out" "approved push: allow"
+  out="$(dgate "$tmp" "npm publish")"
+  assert_contains "$out" '"deny"' "approved push != publish: still deny"
+
+  printf 'action=push\nsession_id=S1\nts=1\n' > "$tmp/.claude/loop/.gate-approved"
+  out="$(dgate "$tmp" "git push origin main")"
+  assert_contains "$out" '"deny"' "expired marker: deny"
+
+  printf 'action=push\nsession_id=OTHER\nts=%s\n' "$(date +%s)" > "$tmp/.claude/loop/.gate-approved"
+  out="$(dgate "$tmp" "git push origin main")"
+  assert_contains "$out" '"deny"' "wrong-session marker: deny"
+
+  rm -rf "$tmp"
+}
+
 # ── check_budget.sh: smoke — the real repo must be within budget ──
 test_budget() {
   printf '\ncheck_budget.sh\n'
@@ -156,6 +240,7 @@ test_gen_ci() {
 }
 
 test_verifier_guard
+test_decision_gate
 test_stop_gate
 test_budget
 test_gen_ci
