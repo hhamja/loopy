@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
-# loop-harness verifier guard (PreToolUse hook, matcher: Bash).
+# loopy verifier guard (PreToolUse hook, matcher: Bash).
 #
 # Scope: acts ONLY when the hook input's agent_type contains "verifier", "auditor", or
-# "architect" (partial match — survives namespace prefixes like "loop-harness:verifier").
+# "architect" (partial match — survives namespace prefixes like "loopy:verifier").
 # A missing agent_type field, a non-matching value, or any parse doubt -> allow (fail-open).
 # The main agent and every other agent are NEVER blocked here.
 #
@@ -56,7 +56,7 @@ fi
 
 deny() {
   # $1 is a fixed tag chosen below — safe to interpolate into JSON
-  printf '{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"deny","permissionDecisionReason":"loop-harness verifier_guard: this read-only checker (verifier/auditor/architect) must not modify files — blocked write-capable Bash (%s). Report a FAIL/finding with evidence instead of modifying anything."}}\n' "$1"
+  printf '{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"deny","permissionDecisionReason":"loopy verifier_guard: this read-only checker (verifier/auditor/architect) must not modify files — blocked write-capable Bash (%s). Report a FAIL/finding with evidence instead of modifying anything."}}\n' "$1"
   exit 0
 }
 

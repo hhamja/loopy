@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# loop-harness token budget proof — the ONLY accepted evidence of budget compliance.
+# loopy token budget proof — the ONLY accepted evidence of budget compliance.
 #   budget 1: resident surface = sum of single-line `description:` frontmatter words
 #             across commands/*.md, agents/*.md, skills/*/SKILL.md  -> <= 300 words
 #   budget 2: each skills/*/SKILL.md body (after the closing ---)   -> <= 500 words

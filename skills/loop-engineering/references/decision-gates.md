@@ -47,4 +47,4 @@ The marker is gitignored (`.claude/loop/.*`). Writing it *is* the act of recordi
 
 ## Relation to the three principles
 
-This is the orchestration layer over maker/checker: the upper model classifies and delegates T0/T1 freely; only T2 escalates. The `auditor` subagent (see `/loop-harness:loop-audit`) later checks that the loop actually held this line — no reversible step wrongly gated (over-confirmation), no T2 action taken without a gate (under-confirmation).
+This is the orchestration layer over maker/checker: the upper model classifies and delegates T0/T1 freely; only T2 escalates. The `auditor` subagent (see `/loopy:loop-audit`) later checks that the loop actually held this line — no reversible step wrongly gated (over-confirmation), no T2 action taken without a gate (under-confirmation).

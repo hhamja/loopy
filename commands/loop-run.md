@@ -9,7 +9,7 @@ Arguments (`$ARGUMENTS`): `--once` = exactly one cycle. `--verify-only` = grade 
 
 ## Before anything
 
-1. If `.claude/loop/` does not exist: tell the user to run `/loop-harness:loop-init` and stop.
+1. If `.claude/loop/` does not exist: tell the user to run `/loopy:loop-init` and stop.
 2. Read, in order: `state.md` (entry point — resume from what it says is unresolved), `goal.md`, `rubric.md`, `loop.config.md`, and the `## Distilled rules` section of `memory.md` (consult step of the memory protocol).
 3. **Implementer preflight** (skip for `--verify-only`): read `implementer:` from loop.config.md — a missing key means `claude`. If it is `codex`, run `codex --version` once via Bash. On failure, use claude for this entire run and record "codex unavailable, fell back to claude" in state.md at the next update and in memory.md per the protocol. Check once per run, never per cycle (`codex --version` succeeds on an installed-but-unauthenticated CLI — the per-cycle fallback in the Implement step covers that case).
 4. If NOT `--verify-only`, record the run marker via Bash (single command):

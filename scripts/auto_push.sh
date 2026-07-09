@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# loop-harness auto-push (Stop hook).
+# loopy auto-push (Stop hook).
 #
 # Realizes the decision doctrine's T0 rule "pushing a work branch is reversible ->
 # act autonomously, never re-ask" (references/decision-gates.md). decision_gate.sh

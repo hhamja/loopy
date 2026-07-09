@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# loop-harness decision gate (PreToolUse hook, matcher: Bash).
+# loopy decision gate (PreToolUse hook, matcher: Bash).
 #
 # Enforces the loop-engineering decision doctrine: an action that is IRREVERSIBLE
 # or HIGH-IMPACT (T2) needs a human gate; reversible/local work (T0/T1) never does.
@@ -103,7 +103,7 @@ approved() {
 
 deny() {
   # $1 = fixed tag, $2 = action class — both chosen below, safe to interpolate.
-  printf '{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"deny","permissionDecisionReason":"loop-harness decision_gate: T2 (irreversible / high-impact) action blocked (%s). This is a human gate — do NOT work around it. Stop, summarize in .claude/loop/review.md, and get explicit human approval. Once approved, write .claude/loop/.gate-approved (action=%s, session_id, ts), retry, then remove the marker."}}\n' "$1" "$2"
+  printf '{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"deny","permissionDecisionReason":"loopy decision_gate: T2 (irreversible / high-impact) action blocked (%s). This is a human gate — do NOT work around it. Stop, summarize in .claude/loop/review.md, and get explicit human approval. Once approved, write .claude/loop/.gate-approved (action=%s, session_id, ts), retry, then remove the marker."}}\n' "$1" "$2"
   exit 0
 }
 

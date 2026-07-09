@@ -23,9 +23,9 @@ Copy everything below and paste it into Claude Code.
 ## Global rules
 
 - Language: all plugin files (SKILL.md, commands, agent definitions, README, scripts) are written in English (token efficiency, portability). Word budgets are counted in English words via `wc -w`. Chat reports and the final usage summary are in English.
-- Output location: `loop-harness/` in the current working directory
+- Output location: `loopy/` in the current working directory
 - Versioning: a version field in plugin.json, CHANGELOG.md at the root — in preparation for redeployment to existing projects.
-- Command notation: plugin commands are always exposed namespaced as `/loop-harness:<name>`. `/loop-init` etc. in this document are shorthand; user-facing docs (README, quickstart) must use the full form (`/loop-harness:loop-init`).
+- Command notation: plugin commands are always exposed namespaced as `/loopy:<name>`. `/loop-init` etc. in this document are shorthand; user-facing docs (README, quickstart) must use the full form (`/loopy:loop-init`).
 - Path rule: when hooks.json references scripts, always use `${CLAUDE_PLUGIN_ROOT}`-based paths — relative paths break on global install (plugins are copied to a cache directory at install time).
 
 ## Background (reference concept summary — no link fetching needed)
@@ -43,14 +43,14 @@ Loop engineering: instead of prompting the agent directly every turn, you design
 
 ## Goal
 
-Build a Claude Code plugin `loop-harness` that ports to any new project (MVP) with "one plugin install (per machine) + one `/loop-harness:loop-init` (per project)."
+Build a Claude Code plugin `loopy` that ports to any new project (MVP) with "one plugin install (per machine) + one `/loopy:loop-init` (per project)."
 
 Design invariant: plugin = immutable logic (global install), `.claude/loop/` = mutable state (project-local, created by loop-init)
 
 ## Deliverable structure
 
 ```
-loop-harness/
+loopy/
 ├── .claude-plugin/
 │   ├── plugin.json                     # Manifest (version required). Only manifest-type files live here
 │   └── marketplace.json                # Self-hosted marketplace manifest — for install path ① (marketplace add)
@@ -130,7 +130,7 @@ Project-local files created by loop-init:
   - The invariant is not "fully read-only" but **"no modification of source or loop state files."** Incidental writes from running tests/builds (caches, coverage, etc.) are allowed.
 - The verifier returns a verdict report only (per-criterion pass/fail + supporting command output). The main agent, upon receiving the report, updates the rubric.md checkboxes and state.md. The verifier modifies no files.
 
-## Loop execution model (/loop-harness:loop-run)
+## Loop execution model (/loopy:loop-run)
 
 - Default behavior: repeat cycles until every rubric criterion passes or a safety rail triggers.
 - Options: `--once` = run exactly 1 cycle (incremental adoption, cost control). `--verify-only` = run verifier grading once with no implementation and print the report (for reviewing existing code; the entry point of incremental adoption). **`--verify-only` is read-only end to end: it writes or modifies no files, including `.run-marker`** (measured against a fresh session with no residual marker — if a marker persists in the same session, stop_gate updates `.last-usage` at turn end; see the hooks spec and known limitation 2) — writing the marker would make Stop gate check 4 block verify-only itself.
@@ -191,9 +191,9 @@ Project-local files created by loop-init:
 ## README requirements
 
 - Two install paths:
-  - ① via marketplace: `/plugin marketplace add <repo>` → `/plugin install loop-harness@<marketplace>`. State that marketplace.json is included at `.claude-plugin/marketplace.json`, so this repository can be added as a marketplace as-is.
-  - ② local development: `claude --plugin-dir ./loop-harness` (absolute path recommended)
-- 3-minute quickstart — all commands written in full namespaced form (`/loop-harness:loop-init`, etc.)
+  - ① via marketplace: `/plugin marketplace add <repo>` → `/plugin install loopy@<marketplace>`. State that marketplace.json is included at `.claude-plugin/marketplace.json`, so this repository can be added as a marketplace as-is.
+  - ② local development: `claude --plugin-dir ./loopy` (absolute path recommended)
+- 3-minute quickstart — all commands written in full namespaced form (`/loopy:loop-init`, etc.)
 - Incremental adoption path (`--verify-only` → `--once` → full loop)
 - Cross-model maker/checker (Codex) section: prerequisites (codex CLI installed + `codex login`), how it works (fresh `codex exec` per cycle, isolated via `.codex-log` and only `.codex-last` read back), config keys (`implementer`/`codex_args` with the network example), fallback behavior, and that `implementer: claude` gives the previous behavior (zero Codex dependency)
 - Token-cost caveats — Codex-side usage is billed by OpenAI and not included in the `.last-usage` estimate
@@ -211,7 +211,7 @@ Project-local files created by loop-init:
 1. Create the plugin skeleton per the structure above → write each file (commands → agents → skills → hooks → scripts, in that order)
 2. Run `check_budget.sh` → confirm the budget passes (fix and rerun if not)
 3. Dogfooding A — the execution method is fixed as follows:
-   - Run headless nested sessions in the target project directory: `claude -p "<instruction or /loop-harness:command>" --plugin-dir <absolute plugin path> --permission-mode bypassPermissions`, with a per-call timeout (e.g., 10 minutes)
+   - Run headless nested sessions in the target project directory: `claude -p "<instruction or /loopy:command>" --plugin-dir <absolute plugin path> --permission-mode bypassPermissions`, with a per-call timeout (e.g., 10 minutes)
    - Permission-mode caution: headless cannot show permission prompts, so under `acceptEdits` every Bash tool call is denied (measured on v2.1.201 — the loop, the verifier, and the smoke checks are all impossible; smoke ②'s positive test produced a false positive where a permission-layer denial was misread as a guard deny). Use `bypassPermissions` only for throwaway dogfooding projects. Hook denies fire independently of permission mode (empirically confirmed), so smoke ②'s positive/negative test premise holds
    - If custom slash commands do not run under `-p`, fall back to passing the command file's body directly as the prompt, and record that fact in memory.md with a `[plugin]` tag
    - Cost control: dogfooding rubric of 3–5 criteria, max_iterations set to 3
@@ -221,7 +221,7 @@ Project-local files created by loop-init:
      - ③ Confirm `CLAUDE_CODE_SESSION_ID` exists in the Bash environment. If absent, confirm the `unknown` fallback (check 3 fail-open) works, and add the one-line README known limitation + a `[plugin]` record in memory.md. If present, after the first loop-run turn ends, cross-check via the `LOOP_GUARD_DEBUG=1` log that `.run-marker`'s session_id matched the stop hook input's session_id (defends against contamination from parent-session env inheritance in nested headless sessions). On mismatch, likewise add the one-line README limitation + memory record (the gate goes inactive in the fail-open direction)
    - Content: empty Next.js project (create-next-app, network required) → loop-init → set one small feature as the goal (e.g., health-check API + tests) → run the loop → confirm verifier grading and state/memory/review updates
    - **Two implementer smoke checks:** ⓐ with `implementer: codex`, one `--once` cycle — codex edits, the verifier grades, state/review update, `.codex-prompt`/`.codex-last`/`.codex-log` are created and untracked, and `.codex-log` content is confirmed NOT loaded into main context ⓑ in a session with codex removed from PATH, `--once` — confirm the claude fallback + a "codex unavailable, fell back to claude" record in state.md/memory.md
-4. During A, session-resume test: force-kill the child process mid-loop with timeout/kill → in a new headless session run `/loop-harness:loop-status` → confirm it resumes from the stopping point using `.claude/loop/` alone. Also confirm the residual .run-marker (another session's session_id) does not block the new session's termination
+4. During A, session-resume test: force-kill the child process mid-loop with timeout/kill → in a new headless session run `/loopy:loop-status` → confirm it resumes from the stopping point using `.claude/loop/` alone. Also confirm the residual .run-marker (another session's session_id) does not block the new session's termination
 5. During A, safety-rail test: deliberately add 1 impossible-to-pass criterion to the rubric and confirm escalation actually triggers after 3 consecutive failures. In headless, the check target is "escalation options printed + stop reason recorded in state.md + exit." (Remove the criterion afterwards)
 6. Dogfooding B: repeat the step 3 procedure on a Phaser 3 + Vite project
 7. Record problems found during dogfooding via the 5-stage protocol in memory.md while fixing the plugin (improving the plugin itself with a loop). Tag records `[plugin]` (harness defect) / `[project]` (target-project defect) to prevent contamination of the distill stage

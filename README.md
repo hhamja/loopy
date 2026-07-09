@@ -1,13 +1,13 @@
-# loop-harness
+# loopy
 
 **English** | [한국어](README.ko.md)
 
-[![License: MIT](https://img.shields.io/github/license/hhamja/loop-harness)](LICENSE)
-[![Release](https://img.shields.io/github/v/release/hhamja/loop-harness)](https://github.com/hhamja/loop-harness/releases)
+[![License: MIT](https://img.shields.io/github/license/hhamja/loopy)](LICENSE)
+[![Release](https://img.shields.io/github/v/release/hhamja/loopy)](https://github.com/hhamja/loopy/releases)
 
 **Your agent says "done." This plugin makes it prove it.**
 
-loop-harness is a Claude Code plugin for loop engineering: it runs maker/checker cycles and refuses to accept "done" until a machine-verifiable rubric passes. Implementation is delegated to OpenAI's Codex CLI when available; grading is done by an independent read-only Claude verifier — a cross-model split where the model that writes the code never grades it — with disk-based state that survives session death.
+loopy is a Claude Code plugin for loop engineering: it runs maker/checker cycles and refuses to accept "done" until a machine-verifiable rubric passes. Implementation is delegated to OpenAI's Codex CLI when available; grading is done by an independent read-only Claude verifier — a cross-model split where the model that writes the code never grades it — with disk-based state that survives session death.
 
 Design invariant: **the plugin is immutable logic** (install once per machine); **all mutable state lives in `.claude/loop/`** (created once per project by `loop-init`).
 
@@ -17,7 +17,7 @@ Design invariant: **the plugin is immutable logic** (install once per machine); 
 
 ```
 /plugin marketplace add <this-repo-URL-or-local-path>
-/plugin install loop-harness@loop-harness-marketplace
+/plugin install loopy@loopy-marketplace
 ```
 
 This repo ships `.claude-plugin/marketplace.json`, so the repo itself can be added as a marketplace directly — no separate marketplace repo needed.
@@ -25,7 +25,7 @@ This repo ships `.claude-plugin/marketplace.json`, so the repo itself can be add
 **Path 2 — local development:**
 
 ```
-claude --plugin-dir /absolute/path/to/loop-harness
+claude --plugin-dir /absolute/path/to/loopy
 ```
 
 (Absolute path recommended.)
@@ -33,22 +33,22 @@ claude --plugin-dir /absolute/path/to/loop-harness
 ## Quickstart (3 minutes)
 
 1. `cd` into your project and start Claude Code.
-2. Run `/loop-harness:loop-init` — scaffolds `.claude/loop/` (goal, rubric, state, memory, review, config), auto-detects your test/lint/build commands, and detects whether the Codex CLI is available (sets `implementer:` accordingly).
+2. Run `/loopy:loop-init` — scaffolds `.claude/loop/` (goal, rubric, state, memory, review, config), auto-detects your test/lint/build commands, and detects whether the Codex CLI is available (sets `implementer:` accordingly).
 3. Edit `.claude/loop/goal.md` and `rubric.md` — every criterion needs a verification command (see the loop-engineering skill's rubric guide).
-4. Run `/loop-harness:loop-run` — cycles implement (Codex or Claude) → verify until the rubric passes or a safety rail triggers.
-5. Run `/loop-harness:loop-status` any time to see progress; it is always read-only.
+4. Run `/loopy:loop-run` — cycles implement (Codex or Claude) → verify until the rubric passes or a safety rail triggers.
+5. Run `/loopy:loop-status` any time to see progress; it is always read-only.
 
 ## Progressive adoption
 
 You don't have to run the full loop on day one:
 
-1. `/loop-harness:loop-run --verify-only` — grade existing code against a rubric; prints a report and writes nothing (read-only guarantee holds for a fresh session; see known limitations).
-2. `/loop-harness:loop-run --once` — exactly one implement+verify cycle, then stop.
-3. `/loop-harness:loop-run` — the full loop, with safety rails: `max_iterations` cap (default 10) and escalation after 3 consecutive failures of the same criterion.
+1. `/loopy:loop-run --verify-only` — grade existing code against a rubric; prints a report and writes nothing (read-only guarantee holds for a fresh session; see known limitations).
+2. `/loopy:loop-run --once` — exactly one implement+verify cycle, then stop.
+3. `/loopy:loop-run` — the full loop, with safety rails: `max_iterations` cap (default 10) and escalation after 3 consecutive failures of the same criterion.
 
 ## Diagnose an existing harness
 
-`/loop-harness:loop-diagnose [path]` inspects any project's agent/loop harness against the control plane (`docs/loop-control-plane.md`) — no `.claude/loop/` required. A read-only `loop-architect` subagent scores the seven ETCLOVG responsibilities (Execution, Tooling, Context, Lifecycle, Observability, Verification, Governance) with cited evidence and a maturity level (L0–L5), then the main agent writes `harness-diagnosis.md` with build-order-ranked priority fixes. Unlike `loop-audit` (which grades an initialized loop's *process*), this diagnoses whether the harness *architecture* exists at all.
+`/loopy:loop-diagnose [path]` inspects any project's agent/loop harness against the control plane (`docs/loop-control-plane.md`) — no `.claude/loop/` required. A read-only `loop-architect` subagent scores the seven ETCLOVG responsibilities (Execution, Tooling, Context, Lifecycle, Observability, Verification, Governance) with cited evidence and a maturity level (L0–L5), then the main agent writes `harness-diagnosis.md` with build-order-ranked priority fixes. Unlike `loop-audit` (which grades an initialized loop's *process*), this diagnoses whether the harness *architecture* exists at all.
 
 ## Cross-model maker/checker (Codex)
 

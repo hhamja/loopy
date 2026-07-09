@@ -193,7 +193,7 @@
 
 ---
 
-## 7. 이 레포(`loop-harness`)에서의 구현 매핑
+## 7. 이 레포(`loopy`)에서의 구현 매핑
 
 이 문서의 원칙들은 추상론이 아니라, 이 프로젝트에 코드로 구현되어 있다.
 
@@ -204,9 +204,9 @@
 | 디스크 메모리 | `.claude/loop/` — `state.md`·`goal.md`·`rubric.md`·`memory.md`·`review.md` |
 | 결정 게이트 | `decision_gate.sh` — 되돌림 가능성으로 분류, 훅으로 강제 |
 | 값싼 정찰 | `explorer` 에이전트(haiku, 읽기 전용) |
-| 사이클 실행 | `/loop-harness:loop-run` (`--once`, `--verify-only` 지원) |
-| 상태 요약 | `/loop-harness:loop-status` |
-| 원칙 감사 | `/loop-harness:loop-audit` — 루프가 원칙을 지키는지 스스로 채점 |
+| 사이클 실행 | `/loopy:loop-run` (`--once`, `--verify-only` 지원) |
+| 상태 요약 | `/loopy:loop-status` |
+| 원칙 감사 | `/loopy:loop-audit` — 루프가 원칙을 지키는지 스스로 채점 |
 
 > 즉, 이 레포는 "최정예 팀의 루프 엔지니어링"을 **설치 가능한 하네스**로 만든 것이다. 원칙을 읽고 매번 지키려 애쓰는 대신, 원칙을 어기기 어렵게 만든 도구.
 

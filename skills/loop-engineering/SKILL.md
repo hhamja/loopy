@@ -15,7 +15,7 @@ Design the system that prompts the agent instead of prompting the agent each tur
 
 ## Structure
 
-Plugin = immutable logic (installed once per machine). `.claude/loop/` = mutable state (once per project, created by `/loop-harness:loop-init`): `goal.md`, `rubric.md`, `state.md` (summary rewritten each cycle, max 100 lines), `memory.md`, `review.md` (human review summary, every cycle), `loop.config.md` (the only stack-dependent file).
+Plugin = immutable logic (installed once per machine). `.claude/loop/` = mutable state (once per project, created by `/loopy:loop-init`): `goal.md`, `rubric.md`, `state.md` (summary rewritten each cycle, max 100 lines), `memory.md`, `review.md` (human review summary, every cycle), `loop.config.md` (the only stack-dependent file).
 
 ## Cycle shape
 

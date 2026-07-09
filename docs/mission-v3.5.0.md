@@ -23,9 +23,9 @@
 ## 전역 규칙
 
 - 언어: 플러그인 파일(SKILL.md, 커맨드, 에이전트 정의, README, 스크립트)은 전부 영어로 작성한다(토큰 효율·이식성). 단어 예산은 영어 단어 기준, `wc -w`로 계산. 채팅 보고와 최종 사용법 요약은 한국어.
-- 생성 위치: 현재 작업 디렉터리의 `loop-harness/`
+- 생성 위치: 현재 작업 디렉터리의 `loopy/`
 - 버전 관리: plugin.json에 version 필드, 루트에 CHANGELOG.md — 기존 프로젝트 재배포 대비.
-- 커맨드 표기: 플러그인 커맨드는 항상 `/loop-harness:<name>`으로 네임스페이스되어 노출된다. 본문의 `/loop-init` 등은 축약 표기이며, 사용자 노출 문서(README, quickstart)에는 반드시 전체 형태(`/loop-harness:loop-init`)를 쓸 것.
+- 커맨드 표기: 플러그인 커맨드는 항상 `/loopy:<name>`으로 네임스페이스되어 노출된다. 본문의 `/loop-init` 등은 축약 표기이며, 사용자 노출 문서(README, quickstart)에는 반드시 전체 형태(`/loopy:loop-init`)를 쓸 것.
 - 경로 규칙: hooks.json에서 스크립트를 참조할 때 반드시 `${CLAUDE_PLUGIN_ROOT}` 기준 경로를 쓸 것 — 상대 경로는 글로벌 설치 시 깨진다(플러그인은 설치 시 캐시 디렉터리로 복사됨).
 
 ## 배경 (참고 개념 요약 — 링크 fetch 불필요)
@@ -43,14 +43,14 @@
 
 ## 목표
 
-어떤 신규 프로젝트(MVP)에도 "플러그인 설치 1회(머신당) + `/loop-harness:loop-init` 1회(프로젝트당)"로 이식되는 Claude Code 플러그인 `loop-harness`를 구축한다.
+어떤 신규 프로젝트(MVP)에도 "플러그인 설치 1회(머신당) + `/loopy:loop-init` 1회(프로젝트당)"로 이식되는 Claude Code 플러그인 `loopy`를 구축한다.
 
 설계 불변식: 플러그인 = 불변 로직(글로벌 설치), `.claude/loop/` = 가변 상태(프로젝트 로컬, loop-init이 생성)
 
 ## 산출물 구조
 
 ```
-loop-harness/
+loopy/
 ├── .claude-plugin/
 │   ├── plugin.json                     # 매니페스트(version 필수). 이 디렉토리에는 매니페스트류만 둠
 │   └── marketplace.json                # 자체 marketplace 매니페스트 — 설치 경로 ①(marketplace add)용
@@ -128,7 +128,7 @@ loop-init이 생성하는 프로젝트 로컬 파일:
   - 불변식은 "완전 읽기 전용"이 아니라 **"소스·루프 상태 파일 비수정"**이다. 테스트/빌드 실행에 따른 부수적 쓰기(캐시, coverage 등)는 허용.
 - verifier는 판정 리포트만 반환한다 (기준별 pass/fail + 근거 명령 출력). rubric.md 체크박스와 state.md 갱신은 리포트를 받은 메인 에이전트가 수행한다. verifier는 어떤 파일도 수정하지 않는다.
 
-## 루프 실행 모델 (/loop-harness:loop-run)
+## 루프 실행 모델 (/loopy:loop-run)
 
 - 기본 동작: rubric 전 기준 통과 또는 안전장치 발동까지 사이클 반복.
 - 옵션: `--once` = 1사이클만 실행(점진 채택·비용 통제용). `--verify-only` = 구현 없이 verifier 채점 1회만 실행하고 리포트 출력(기존 코드 리뷰 용도, 점진 채택 진입점). **`--verify-only`는 전 과정 read-only: `.run-marker`를 포함해 어떤 파일도 기록·수정하지 않는다**(잔존 marker 없는 신선한 세션 기준 — 동일 세션에 marker가 잔존하면 턴 종료 시 stop_gate가 `.last-usage`를 갱신한다, hooks 명세·알려진 한계 2 참조) — marker를 쓰면 Stop gate 판정 4가 verify-only 자신을 차단한다.
@@ -189,9 +189,9 @@ loop-init이 생성하는 프로젝트 로컬 파일:
 ## README 요건
 
 - 설치 2경로:
-  - ① marketplace 경유: `/plugin marketplace add <저장소>` → `/plugin install loop-harness@<marketplace>`. marketplace.json은 `.claude-plugin/marketplace.json`에 포함되어 있으므로 이 저장소를 그대로 marketplace로 추가할 수 있음을 명시.
-  - ② 로컬 개발: `claude --plugin-dir ./loop-harness` (절대 경로 권장)
-- 3분 quickstart — 모든 커맨드를 전체 네임스페이스 형태(`/loop-harness:loop-init` 등)로 표기
+  - ① marketplace 경유: `/plugin marketplace add <저장소>` → `/plugin install loopy@<marketplace>`. marketplace.json은 `.claude-plugin/marketplace.json`에 포함되어 있으므로 이 저장소를 그대로 marketplace로 추가할 수 있음을 명시.
+  - ② 로컬 개발: `claude --plugin-dir ./loopy` (절대 경로 권장)
+- 3분 quickstart — 모든 커맨드를 전체 네임스페이스 형태(`/loopy:loop-init` 등)로 표기
 - 점진 채택 경로 (`--verify-only` → `--once` → 전체 루프)
 - 교차 모델 maker/checker(Codex) 섹션: 전제조건(codex CLI 설치 + `codex login` 인증), 동작 방식(fresh `codex exec` per cycle, `.codex-log`로 격리·`.codex-last`만 읽음), config 키(`implementer`·`codex_args` 네트워크 예시), 폴백 동작, `implementer: claude`로 종전 동작(Codex 의존성 zero) 선택 가능
 - 토큰 비용 주의사항 — codex 측 사용량은 OpenAI 과금이며 `.last-usage` 추정치에 미포함
@@ -209,7 +209,7 @@ loop-init이 생성하는 프로젝트 로컬 파일:
 1. 위 구조대로 플러그인 골격 생성 → 각 파일 작성 (commands → agents → skills → hooks → scripts 순)
 2. `check_budget.sh` 실행 → 예산 통과 확인 (미달 시 수정 후 재실행)
 3. 도그푸딩 A — 실행 방식을 다음으로 고정한다:
-   - 대상 프로젝트 디렉터리에서 headless 중첩 세션으로 실행: `claude -p "<지시 또는 /loop-harness:커맨드>" --plugin-dir <플러그인 절대경로> --permission-mode bypassPermissions`, 호출당 타임아웃 설정(예: 10분)
+   - 대상 프로젝트 디렉터리에서 headless 중첩 세션으로 실행: `claude -p "<지시 또는 /loopy:커맨드>" --plugin-dir <플러그인 절대경로> --permission-mode bypassPermissions`, 호출당 타임아웃 설정(예: 10분)
    - permission mode 주의: headless에서는 권한 프롬프트를 띄울 수 없어 `acceptEdits`로는 모든 Bash 도구 호출이 거부된다(v2.1.201 실측 — 루프·verifier·스모크 체크 전부 불가, 스모크 ② positive test가 권한 계층 거부를 guard deny로 오판하는 위양성 발생). `bypassPermissions`는 일회용 도그푸딩 프로젝트 한정으로 사용한다. hook의 deny는 permission mode와 독립적으로 발화하므로(실측 확인) 스모크 ②의 positive/negative test 전제는 유지된다
    - `-p`에서 커스텀 슬래시 커맨드가 실행되지 않으면, 해당 커맨드 파일 본문을 프롬프트로 직접 전달하는 폴백을 쓰고 그 사실을 memory.md에 `[plugin]` 태그로 기록
    - 비용 통제: 도그푸딩용 rubric은 3~5개, max_iterations는 3으로 설정
@@ -219,7 +219,7 @@ loop-init이 생성하는 프로젝트 로컬 파일:
      - ③ Bash 환경에 `CLAUDE_CODE_SESSION_ID`가 존재함을 확인한다. 부재 시 `unknown` 폴백(판정 3 fail-open)이 동작함을 확인하고 README 알려진 한계 1줄 + memory.md `[plugin]` 기록. 존재 시에는 첫 loop-run 턴 종료 후 `.run-marker`의 session_id가 stop hook 입력의 session_id와 일치했는지 `LOOP_GUARD_DEBUG=1` 로그로 대조한다(중첩 headless 세션에서 부모 세션 env 상속으로 오염될 가능성 방어). 불일치 시에도 동일하게 README 한계 1줄 + memory 기록(gate는 미차단 방향으로 비활성)
    - 내용: 빈 Next.js 프로젝트(create-next-app, 네트워크 필요) → loop-init → 소형 기능 1개(예: 헬스체크 API + 테스트)를 goal로 설정 → 루프 실행 → verifier 채점, state/memory/review 갱신 확인
    - **implementer 스모크 2건:** ⓐ `implementer: codex`에서 `--once` 1사이클 — codex가 수정, verifier가 채점, state/review 갱신, `.codex-prompt`/`.codex-last`/`.codex-log` 생성·untracked 확인, `.codex-log` 내용이 메인 컨텍스트에 로드되지 않음 확인 ⓑ PATH에서 codex를 제거한 세션에서 `--once` — claude 폴백 + state.md·memory.md에 "codex unavailable, fell back to claude" 기록 확인
-4. A 중 세션 재개 테스트: 루프 중간에 자식 프로세스를 timeout/kill로 강제 종료 → 새 headless 세션에서 `/loop-harness:loop-status` → `.claude/loop/`만으로 멈춘 지점부터 재개되는지 확인. 이때 잔존 .run-marker(타 세션 session_id) 때문에 새 세션의 종료가 차단되지 않는지 함께 확인
+4. A 중 세션 재개 테스트: 루프 중간에 자식 프로세스를 timeout/kill로 강제 종료 → 새 headless 세션에서 `/loopy:loop-status` → `.claude/loop/`만으로 멈춘 지점부터 재개되는지 확인. 이때 잔존 .run-marker(타 세션 session_id) 때문에 새 세션의 종료가 차단되지 않는지 함께 확인
 5. A 중 안전장치 테스트: 의도적으로 통과 불가능한 기준 1개를 rubric에 넣고, 3회 연속 실패 시 에스컬레이션이 실제 발동하는지 확인. headless에서는 "에스컬레이션 옵션 출력 + state.md 중단 사유 기록 + 종료"가 확인 대상이다. (확인 후 해당 기준 제거)
 6. 도그푸딩 B: Phaser 3 + Vite 프로젝트에서 3번 절차 반복
 7. 도그푸딩에서 발견된 문제를 memory.md 5단계 프로토콜로 기록하며 플러그인 수정(플러그인 자체를 루프로 개선). 기록에 `[plugin]`(하네스 결함) / `[project]`(대상 프로젝트 결함) 태그를 붙여 distill 단계 오염 방지

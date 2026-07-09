@@ -29,7 +29,7 @@ An entry that cannot reach `verify` stays in the raw log as an open question —
 
 ## Tag rules ([plugin] / [project]) — mandatory
 
-- `[plugin]`: defect or notable behavior of the loop-harness itself (hook not firing, agent tool dropped, command misparsed, env var missing).
+- `[plugin]`: defect or notable behavior of the loopy itself (hook not firing, agent tool dropped, command misparsed, env var missing).
 - `[project]`: defect of the target project (failing test, missing dependency, misconfigured build).
 - Never distill across tags — a `[project]` fact must not become a `[plugin]` rule or vice versa. This keeps harness lessons portable between projects.
 - Untagged entries are protocol violations; tag them when seen.

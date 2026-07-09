@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# loop-harness test harness — pure bash, zero dependencies.
+# loopy test harness — pure bash, zero dependencies.
 # Runs the hook scripts against fixed inputs and asserts exit code + stdout,
 # so CI needs nothing beyond bash itself.
 #   bash tests/run.sh   -> exit 0 = all pass, exit 1 = at least one failure
@@ -32,14 +32,14 @@ test_verifier_guard() {
   out="$(guard '{"agent_type":"main","tool_input":{"command":"rm x"}}')"
   assert_empty "$out" "non-verifier agent: no deny"
 
-  out="$(guard '{"agent_type":"loop-harness:verifier","tool_input":{"command":"rm -rf build"}}')"; rc=$?
+  out="$(guard '{"agent_type":"loopy:verifier","tool_input":{"command":"rm -rf build"}}')"; rc=$?
   assert_exit 0 "$rc" "verifier rm: exit 0 (deny parsed only on exit 0)"
   assert_contains "$out" '"permissionDecision":"deny"' "verifier rm: deny"
 
-  out="$(guard '{"agent_type":"loop-harness:auditor","tool_input":{"command":"rm -rf x"}}')"
+  out="$(guard '{"agent_type":"loopy:auditor","tool_input":{"command":"rm -rf x"}}')"
   assert_contains "$out" '"deny"' "auditor rm: deny (read-only checker)"
 
-  out="$(guard '{"agent_type":"loop-harness:architect","tool_input":{"command":"echo x > diagnosis.md"}}')"
+  out="$(guard '{"agent_type":"loopy:architect","tool_input":{"command":"echo x > diagnosis.md"}}')"
   assert_contains "$out" '"deny"' "architect redirect: deny (read-only checker)"
 
   out="$(guard '{"agent_type":"loop-architect","tool_input":{"command":"cat rubric.md"}}')"

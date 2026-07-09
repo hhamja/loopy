@@ -24,7 +24,7 @@ Scaffold first, questions last: you often cannot tell whether anyone can answer 
 3. **Create the files** from the templates below immediately, using detected values and TODOs. Goal: use the command arguments if given, else `TODO: define the goal`. Print one warning line per TODO written.
 4. **Gitignore:** ensure the project `.gitignore` contains the line `.claude/loop/.*` (create `.gitignore` if missing; skip if the line already exists). Non-hidden loop files are MEANT to be committed (team sharing, session recovery).
 5. **Interactive refinement (optional):** only AFTER the files exist, and only if this session is clearly interactive (a human typed the command and can reply), you may ask ONE question to fill the remaining TODOs, then update the files. If in doubt, skip — TODOs are the designed outcome. Never end the turn with questions instead of created files.
-6. **Report:** created paths + remaining TODOs + the detected implementer + next steps — try `/loop-harness:loop-run --verify-only` first (grade only), then `/loop-harness:loop-run`. If `implementer: claude` because no Codex CLI was found, note: install the Codex CLI and run `codex login`, then set `implementer: codex` in loop.config.md to enable the cross-model maker/checker split.
+6. **Report:** created paths + remaining TODOs + the detected implementer + next steps — try `/loopy:loop-run --verify-only` first (grade only), then `/loopy:loop-run`. If `implementer: claude` because no Codex CLI was found, note: install the Codex CLI and run `codex login`, then set `implementer: codex` in loop.config.md to enable the cross-model maker/checker split.
 
 ## Templates
 
