@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.6.0 — 2026-07-09
+
+- Harness diagnosis: `loop-diagnose` (new skill) + `loop-architect` (new read-only subagent) diagnose *any* project's agent/loop harness against the control plane (`docs/loop-control-plane.md`) — no `.claude/loop/` required. The architect scores the seven ETCLOVG responsibilities (Execution, Tooling, Context, Lifecycle, Observability, Verification, Governance) with cited evidence and a maturity level (L0–L5), and returns build-order-ranked priority fixes; the main agent writes the report to `harness-diagnosis.md`. Complements `loop-audit`, which grades an *initialized* loop's process rather than whether the architecture exists at all.
+- Packaged as a Skill (per current Claude Code guidance that custom commands are skills) with `disable-model-invocation: true` so this side-effecting workflow only runs when the user invokes `/loop-harness:loop-diagnose [path]`; the target path arrives via `$ARGUMENTS`.
+- `verifier_guard.sh` now also guards the `loop-architect` agent (all three read-only checkers — verifier, auditor, architect — are blocked from write-capable Bash).
+- `check_budget.sh` now enforces the ≤500-word body limit on every `skills/*/SKILL.md`, not just the loop-engineering skill.
+
 ## 0.5.0 — 2026-07-09
 
 - Auto-push (new Stop hook `auto_push.sh`): realizes the decision doctrine's T0 rule "pushing a work branch is reversible → act autonomously, never re-ask". At turn end inside a loop project the current work branch is pushed automatically — plain `git push` when it is ahead of its upstream, or `git push -u origin <branch>` on the first push. It is the active complement to `decision_gate.sh`, which *blocks* pushing a protected branch.

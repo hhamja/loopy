@@ -46,6 +46,10 @@ claude --plugin-dir /absolute/path/to/loop-harness
 2. `/loop-harness:loop-run --once` — 정확히 한 번의 구현+검증 사이클 후 정지.
 3. `/loop-harness:loop-run` — 전체 루프. 안전 장치 포함: `max_iterations` 상한(기본 10)과 동일 기준 3회 연속 실패 시 에스컬레이션.
 
+## 기존 하네스 진단
+
+`/loop-harness:loop-diagnose [경로]`는 임의의 프로젝트의 에이전트/루프 하네스를 제어 평면(`docs/loop-control-plane.md`) 기준으로 진단합니다 — `.claude/loop/`가 없어도 됩니다. 읽기 전용 `loop-architect` 서브에이전트가 ETCLOVG 7책임(Execution, Tooling, Context, Lifecycle, Observability, Verification, Governance)을 증거 인용과 함께 채점하고 성숙도 레벨(L0–L5)을 매기면, 메인 에이전트가 시공 순서로 정렬된 우선 수정안과 함께 `harness-diagnosis.md`를 기록합니다. 초기화된 루프의 *프로세스*를 채점하는 `loop-audit`와 달리, 이쪽은 하네스 *아키텍처가 애초에 존재하는지*를 진단합니다.
+
 ## 교차 모델 maker/checker (Codex)
 
 구현 단계를 OpenAI Codex CLI에 위임할 수 있습니다 — 코드를 쓴 모델이 그 코드를 채점하는 일이 절대 없도록.

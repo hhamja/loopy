@@ -46,6 +46,10 @@ You don't have to run the full loop on day one:
 2. `/loop-harness:loop-run --once` — exactly one implement+verify cycle, then stop.
 3. `/loop-harness:loop-run` — the full loop, with safety rails: `max_iterations` cap (default 10) and escalation after 3 consecutive failures of the same criterion.
 
+## Diagnose an existing harness
+
+`/loop-harness:loop-diagnose [path]` inspects any project's agent/loop harness against the control plane (`docs/loop-control-plane.md`) — no `.claude/loop/` required. A read-only `loop-architect` subagent scores the seven ETCLOVG responsibilities (Execution, Tooling, Context, Lifecycle, Observability, Verification, Governance) with cited evidence and a maturity level (L0–L5), then the main agent writes `harness-diagnosis.md` with build-order-ranked priority fixes. Unlike `loop-audit` (which grades an initialized loop's *process*), this diagnoses whether the harness *architecture* exists at all.
+
 ## Cross-model maker/checker (Codex)
 
 The implement step can be delegated to OpenAI's Codex CLI, so the model that writes the code is never the model that grades it.

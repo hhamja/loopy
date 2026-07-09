@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
 # loop-harness verifier guard (PreToolUse hook, matcher: Bash).
 #
-# Scope: acts ONLY when the hook input's agent_type contains "verifier" or "auditor"
-# (partial match — survives namespace prefixes like "loop-harness:verifier"). A missing
-# agent_type field, a non-matching value, or any parse doubt -> allow (fail-open).
+# Scope: acts ONLY when the hook input's agent_type contains "verifier", "auditor", or
+# "architect" (partial match — survives namespace prefixes like "loop-harness:verifier").
+# A missing agent_type field, a non-matching value, or any parse doubt -> allow (fail-open).
 # The main agent and every other agent are NEVER blocked here.
 #
 # Invariant enforced: these read-only checkers must not modify source or loop state files.
@@ -26,7 +26,7 @@ if [ "${LOOP_GUARD_DEBUG:-}" = "1" ]; then
   fi
 fi
 
-# --- scope: only the verifier agent is inspected ---
+# --- scope: only the read-only checker agents are inspected ---
 if command -v jq >/dev/null 2>&1; then
   AGENT_TYPE="$(printf '%s' "$INPUT" | jq -r '.agent_type // empty' 2>/dev/null || true)"
 else
@@ -34,11 +34,11 @@ else
 fi
 
 case "$AGENT_TYPE" in
-  *verifier*|*auditor*) : ;;   # inspect below (both are read-only checkers)
-  *) exit 0 ;;                 # fail-open: missing field or other agent -> never block
+  *verifier*|*auditor*|*architect*) : ;;   # inspect below (all read-only checkers)
+  *) exit 0 ;;                             # fail-open: missing field or other agent -> never block
 esac
 
-# --- extract the Bash command (verifier only from here on) ---
+# --- extract the Bash command (read-only checkers only from here on) ---
 if command -v jq >/dev/null 2>&1; then
   CMD="$(printf '%s' "$INPUT" | jq -r '.tool_input.command // empty' 2>/dev/null || true)"
 elif command -v python3 >/dev/null 2>&1; then
@@ -56,7 +56,7 @@ fi
 
 deny() {
   # $1 is a fixed tag chosen below — safe to interpolate into JSON
-  printf '{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"deny","permissionDecisionReason":"loop-harness verifier_guard: this read-only checker (verifier/auditor) must not modify files — blocked write-capable Bash (%s). Report a FAIL/finding with evidence instead of modifying anything."}}\n' "$1"
+  printf '{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"deny","permissionDecisionReason":"loop-harness verifier_guard: this read-only checker (verifier/auditor/architect) must not modify files — blocked write-capable Bash (%s). Report a FAIL/finding with evidence instead of modifying anything."}}\n' "$1"
   exit 0
 }
 
