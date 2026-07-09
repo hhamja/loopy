@@ -5,6 +5,7 @@
 - Command→skill migration completed: `loop-init`, `loop-run`, `loop-status`, `loop-audit`, `loop-ci` moved from `commands/*.md` to `skills/<name>/SKILL.md`. They already resolved as `/loopy:<name>`, so invocation is unchanged; this aligns the repo with the project convention that `commands/` is legacy and every feature is a Skill.
 - Each migrated skill gains a `name:` field. The four side-effecting ones (`loop-init`, `loop-run`, `loop-audit`, `loop-ci`) get `disable-model-invocation: true`; the read-only `loop-status` stays model-invocable.
 - `loop-init` and `loop-run` bodies exceeded the ≤500-word SKILL.md limit, so their bulk moved into per-skill `references/` (uncounted, per the existing pattern): loop-init's state-file templates → `references/templates.md`; loop-run's codex procedure, preflight, report-application, and green-gate detail → `references/{codex-exec,preflight,apply-report,green-gate}.md`. Behavior unchanged — only prose location.
+- Docs pruned: removed unreferenced/stale files — `docs/loop-engineering-playbook.md` (a lower-resolution restatement of `docs/loop-control-plane.md`, linked by nothing), the `docs/mission-v3.5.0*.md` build-spec snapshots (KO/EN; described the pre-migration `commands/` structure at v0.2.0), and the `elite-loop-engineering.md` loop-engineering reference (its operating content already lives in the SKILL body + control-plane). The skill route to elite was removed. `loop-control-plane.md` stays — it's a `${CLAUDE_PLUGIN_ROOT}` runtime dependency of `loop-diagnose`/`loop-architect`.
 
 ## 0.6.0 — 2026-07-09
 
