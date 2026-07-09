@@ -267,7 +267,7 @@ LLM-judge는 반드시 **사람 라벨로 캘리브레이션**한다. LLM-facing
 | 정찰 팬아웃 (§2) | `explorer` 서브에이전트 (haiku, read-only) | ✅ |
 | 병렬 쓰기 워커 (§2) | `git worktree` (`references/worktree-guide.md`) — 문서만, 이를 쓰는 커맨드 미탑재 | ⚠ |
 | 체커/verifier (§1 L3·3) | `verifier` 서브에이전트 (`agents/verifier.md`; fresh·read-only, `rubric.md`만 기준). 프로세스 감사 = `auditor`, 하네스 리뷰 = `loop-architect` + `design-critic`(적대적) | ✅ |
-| maker≠checker 비대칭 · 티어 (§3) | 권한 = `disallowedTools` + `verifier_guard.sh`(PreToolUse hook) · 정보 = rubric.md만 · 인센티브 = 반증 프레이밍. 티어: explorer=haiku(증명서 有), verifier/auditor/architect=기본(강한 모델) | ✅ |
+| maker≠checker 비대칭 · 티어 (§3) | 권한 = `disallowedTools` + `verifier_guard.sh`(PreToolUse hook) · 정보 = rubric.md만 · 인센티브 = 반증 프레이밍. 티어: explorer=haiku(증명서 有), verifier/auditor/architect/critic=기본(강한 모델) | ✅ |
 | 게이트 순서 (§4) | verifier phase gate → green gate(`auditor` + `/code-review`) → CI `.github/workflows/ci.yml` + `loop-ci` 생성 `loop-ci.yml` | ✅ |
 | 정책 게이트 (§4·7) | `decision_gate.sh` — 테스트/CI 변조·publish·protected-branch push을 테스트 실행 전 T2 하드블록 | ✅ |
 | 홀드아웃 스위트 (§4) | — (architect 성숙도 L4 상한 사유) | ✕ |

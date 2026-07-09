@@ -56,7 +56,7 @@ fi
 
 deny() {
   # $1 is a fixed tag chosen below — safe to interpolate into JSON
-  printf '{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"deny","permissionDecisionReason":"loopy verifier_guard: this read-only checker (verifier/auditor/architect) must not modify files — blocked write-capable Bash (%s). Report a FAIL/finding with evidence instead of modifying anything."}}\n' "$1"
+  printf '{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"deny","permissionDecisionReason":"loopy verifier_guard: this read-only checker (verifier/auditor/architect/critic) must not modify files — blocked write-capable Bash (%s). Report a FAIL/finding with evidence instead of modifying anything."}}\n' "$1"
   exit 0
 }
 
