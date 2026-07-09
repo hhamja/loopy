@@ -1,5 +1,7 @@
 ---
+name: loop-audit
 description: Audit the loop against loop-engineering principles and decision-gate adherence; write a scored report to audit.md
+disable-model-invocation: true
 ---
 
 # loop-audit — principle & gate adherence check

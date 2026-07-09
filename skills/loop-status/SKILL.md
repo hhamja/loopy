@@ -1,4 +1,5 @@
 ---
+name: loop-status
 description: Summarize loop state, rubric progress, and the last run token estimate from .claude/loop/
 ---
 

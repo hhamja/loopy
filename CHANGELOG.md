@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.6.1 — 2026-07-09
+
+- Command→skill migration completed: `loop-init`, `loop-run`, `loop-status`, `loop-audit`, `loop-ci` moved from `commands/*.md` to `skills/<name>/SKILL.md`. They already resolved as `/loopy:<name>`, so invocation is unchanged; this aligns the repo with the project convention that `commands/` is legacy and every feature is a Skill.
+- Each migrated skill gains a `name:` field. The four side-effecting ones (`loop-init`, `loop-run`, `loop-audit`, `loop-ci`) get `disable-model-invocation: true`; the read-only `loop-status` stays model-invocable.
+- `loop-init` and `loop-run` bodies exceeded the ≤500-word SKILL.md limit, so their bulk moved into per-skill `references/` (uncounted, per the existing pattern): loop-init's state-file templates → `references/templates.md`; loop-run's codex procedure, preflight, report-application, and green-gate detail → `references/{codex-exec,preflight,apply-report,green-gate}.md`. Behavior unchanged — only prose location.
+
 ## 0.6.0 — 2026-07-09
 
 - Harness diagnosis: `loop-diagnose` (new skill) + `loop-architect` (new read-only subagent) diagnose *any* project's agent/loop harness against the control plane (`docs/loop-control-plane.md`) — no `.claude/loop/` required. The architect scores the seven ETCLOVG responsibilities (Execution, Tooling, Context, Lifecycle, Observability, Verification, Governance) with cited evidence and a maturity level (L0–L5), and returns build-order-ranked priority fixes; the main agent writes the report to `harness-diagnosis.md`. Complements `loop-audit`, which grades an *initialized* loop's process rather than whether the architecture exists at all.
