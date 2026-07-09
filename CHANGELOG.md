@@ -1,5 +1,19 @@
 # Changelog
 
+## 0.5.0 — 2026-07-09
+
+- Auto-push (new Stop hook `auto_push.sh`): realizes the decision doctrine's T0 rule "pushing a work branch is reversible → act autonomously, never re-ask". At turn end inside a loop project the current work branch is pushed automatically — plain `git push` when it is ahead of its upstream, or `git push -u origin <branch>` on the first push. It is the active complement to `decision_gate.sh`, which *blocks* pushing a protected branch.
+- Safe by construction: never pushes a `protected_branches` branch (a human gate stays a human gate), stands down when `gate_push: true` (direct-to-main repos where every push is already T2), never force-pushes or pushes tags, and a push failure is logged to `.claude/loop/.last-push` without ever blocking the turn.
+- `loop.config.md` gains `auto_push` (default `true`); set `auto_push: false` to opt out. Absent key falls back to the default, so existing loops need no change.
+
+## 0.4.0 — 2026-07-09
+
+- Autonomous replan: a criterion failing 3 consecutive cycles no longer escalates straight to a human. `loop-run` first tries up to `replan_max` genuinely different strategies — change approach, decompose the work, or spike the root cause — and escalates only when they are exhausted. Doctrine in `references/replan.md`.
+- Criterion-weakening is forbidden as an autonomous move: replan may change the *approach*, never relax, loosen, or delete a rubric `verify:` command (that stays a human-only escalation option). New auditor check **A7** grades this against `rubric.md`'s git history.
+- `loop.config.md` gains `replan_max` (default `2`); absent key falls back to the default, so existing loops need no change.
+- Green gate before "done": on a full run reaching all-green, `loop-run` now runs the `auditor` (process) and the `/code-review` skill (correctness) once before declaring done. A rubric that is green but fails audit or review reopens as new/unresolved criteria instead of stopping — 'green' is no longer trusted blind.
+- `state.md` gains a deterministic `human_gate` marker (`none` | `ready_for_merge` | `pending_t2` | `stalled`) that a driver or notifier can read to decide whether to advance, wait, or surface to the human.
+
 ## 0.3.0 — 2026-07-09
 
 - Decision gates: classify every side-effecting action by reversibility × impact. Reversible/local work (edits, tests, local commits, work-branch push) runs autonomously — never re-confirmed; only irreversible or high-impact actions stop on a human gate. Doctrine in the loop-engineering skill + `references/decision-gates.md`.
