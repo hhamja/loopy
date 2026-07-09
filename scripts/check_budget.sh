@@ -12,17 +12,26 @@ RESIDENT_LIMIT=300
 BODY_LIMIT=500
 
 total=0
+fail=0
 printf 'resident surface (frontmatter descriptions):\n'
 for f in "$ROOT"/commands/*.md "$ROOT"/agents/*.md "$ROOT"/skills/*/SKILL.md; do
   [ -f "$f" ] || continue
   desc="$(awk '/^---[[:space:]]*$/{n++; next} n==1 && sub(/^description:[[:space:]]*/, ""){print; exit}' "$f")"
+  # A folded/literal YAML scalar (`>`/`|`) puts the text on later lines, which the
+  # single-line extraction above cannot see -> it would silently undercount the
+  # budget. Reject it so the proof can never be fooled (see script header).
+  case "$desc" in
+    '>'*|'|'*)
+      printf '  %-45s FAIL: description must be a single-line scalar (multi-line is uncounted)\n' "${f#"$ROOT"/}"
+      fail=1
+      continue ;;
+  esac
   w="$(printf '%s' "$desc" | wc -w | tr -d '[:space:]')"
   printf '  %-45s %3s words\n' "${f#"$ROOT"/}" "$w"
   total=$((total + w))
 done
 printf 'resident total: %s / %s words\n' "$total" "$RESIDENT_LIMIT"
 
-fail=0
 if [ "$total" -gt "$RESIDENT_LIMIT" ]; then
   printf 'FAIL: resident surface over budget\n'
   fail=1
