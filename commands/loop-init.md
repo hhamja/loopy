@@ -113,7 +113,8 @@ build: <detected command or TODO: fill in manually>
 implementer: <codex if `codex --version` succeeded, else claude>
 codex_args: <empty — optional extra `codex exec` flags, e.g. `-m <model>` or `-c sandbox_workspace_write.network_access=true` to allow network>
 max_iterations: 10
-escalation: after 3 consecutive failures of the same criterion, stop and present 2-3 options
+replan_max: 2
+escalation: after 3 consecutive failures of the same criterion, replan up to replan_max times (change approach / decompose / spike — see references/replan.md), then present 2-3 options
 
 protected_branches: main master
 gate_push: false

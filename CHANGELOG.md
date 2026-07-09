@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.4.0 — 2026-07-09
+
+- Autonomous replan: a criterion failing 3 consecutive cycles no longer escalates straight to a human. `loop-run` first tries up to `replan_max` genuinely different strategies — change approach, decompose the work, or spike the root cause — and escalates only when they are exhausted. Doctrine in `references/replan.md`.
+- Criterion-weakening is forbidden as an autonomous move: replan may change the *approach*, never relax, loosen, or delete a rubric `verify:` command (that stays a human-only escalation option). New auditor check **A7** grades this against `rubric.md`'s git history.
+- `loop.config.md` gains `replan_max` (default `2`); absent key falls back to the default, so existing loops need no change.
+- Green gate before "done": on a full run reaching all-green, `loop-run` now runs the `auditor` (process) and the `/code-review` skill (correctness) once before declaring done. A rubric that is green but fails audit or review reopens as new/unresolved criteria instead of stopping — 'green' is no longer trusted blind.
+- `state.md` gains a deterministic `human_gate` marker (`none` | `ready_for_merge` | `pending_t2` | `stalled`) that a driver or notifier can read to decide whether to advance, wait, or surface to the human.
+
 ## 0.3.0 — 2026-07-09
 
 - Decision gates: classify every side-effecting action by reversibility × impact. Reversible/local work (edits, tests, local commits, work-branch push) runs autonomously — never re-confirmed; only irreversible or high-impact actions stop on a human gate. Doctrine in the loop-engineering skill + `references/decision-gates.md`.

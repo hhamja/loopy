@@ -35,6 +35,7 @@ Use the `explorer` agent (haiku, read-only) when a cycle needs codebase scouting
 - Recording a failure, deciding what to distill, `[plugin]` vs `[project]` tagging → `references/memory-protocol.md`
 - Running parallel loop tasks in git worktrees, merging results → `references/worktree-guide.md`
 - Classifying an action, or wiring the gate hook/config → `references/decision-gates.md`
+- A criterion keeps failing, or replanning vs escalating → `references/replan.md`
 
 ## Cost discipline
 
