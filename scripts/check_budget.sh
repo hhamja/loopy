@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # loopy token budget proof — the ONLY accepted evidence of budget compliance.
 #   budget 1: resident surface = sum of single-line `description:` frontmatter words
-#             across commands/*.md, agents/*.md, skills/*/SKILL.md  -> <= 300 words
+#             across agents/*.md, skills/*/SKILL.md  -> <= 300 words
 #   budget 2: each skills/*/SKILL.md body (after the closing ---)   -> <= 500 words
 # Descriptions MUST be single-line YAML scalars; multi-line descriptions are not counted
 # and would silently understate the surface — keep them single-line.
@@ -14,7 +14,7 @@ BODY_LIMIT=500
 total=0
 fail=0
 printf 'resident surface (frontmatter descriptions):\n'
-for f in "$ROOT"/commands/*.md "$ROOT"/agents/*.md "$ROOT"/skills/*/SKILL.md; do
+for f in "$ROOT"/agents/*.md "$ROOT"/skills/*/SKILL.md; do
   [ -f "$f" ] || continue
   desc="$(awk '/^---[[:space:]]*$/{n++; next} n==1 && sub(/^description:[[:space:]]*/, ""){print; exit}' "$f")"
   # A folded/literal YAML scalar (`>`/`|`) puts the text on later lines, which the

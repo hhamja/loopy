@@ -39,45 +39,27 @@
 
 set -u
 
-INPUT="$(cat 2>/dev/null || true)"
-
-# Hooks run in the project cwd; prefer the cwd field when present (mirrors auto_push).
-HOOK_CWD="$(printf '%s' "$INPUT" | sed -n 's/.*"cwd"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' | head -n1)"
-if [ -n "$HOOK_CWD" ] && [ -d "$HOOK_CWD" ]; then
-  cd "$HOOK_CWD" 2>/dev/null || true
-fi
-
-LOOP_DIR=".claude/loop"
-
-if [ "${LOOP_GUARD_DEBUG:-}" = "1" ] && [ -d "$LOOP_DIR" ]; then
-  printf '%s auto_commit input=%s\n' "$(date +%s)" "$INPUT" >> "$LOOP_DIR/.hook-debug.log" 2>/dev/null || true
-fi
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+# shellcheck source=scripts/hook_lib.sh
+. "$SCRIPT_DIR/hook_lib.sh"
+hook_init
+hook_debug auto_commit
 
 # --- guard 1: not a loop project ---
 [ -d "$LOOP_DIR" ] || exit 0
 
 # --- guard 2: already re-prompted once (avoid committing mid-block) ---
-if printf '%s' "$INPUT" | grep -q '"stop_hook_active"[[:space:]]*:[[:space:]]*true'; then
-  exit 0
-fi
+stop_hook_active && exit 0
 
 # --- session/loop gate (P1+P2): act only when THIS session actually ran a loop
 # here (same-session .run-marker) AND no different fresh session holds the worktree
 # lock. This is what stops a shared-working-tree session from auto-committing
 # another session's changes. Logic + tests: scripts/loop_lock.sh. ---
-CUR_SID="$(printf '%s' "$INPUT" | sed -n 's/.*"session_id"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' | head -n1)"
-bash "$(cd "$(dirname "$0")" && pwd)/loop_lock.sh" gate "$CUR_SID" || exit 0
+bash "$SCRIPT_DIR/loop_lock.sh" gate "$(json_str session_id)" || exit 0
 
 # --- guard 3: disabled per project ---
-CONFIG="$LOOP_DIR/loop.config.md"
-AUTO_COMMIT="true"
-WORKER=""
-if [ -f "$CONFIG" ]; then
-  a="$(sed -n 's/^auto_commit:[[:space:]]*//p' "$CONFIG" | head -n1)"
-  case "$a" in false) AUTO_COMMIT="false" ;; esac
-  WORKER="$(sed -n 's/^worker:[[:space:]]*//p' "$CONFIG" | head -n1)"
-fi
-[ "$AUTO_COMMIT" = "true" ] || exit 0
+[ "$(cfg_flag auto_commit true)" = "true" ] || exit 0
+WORKER="$(config_field worker)"
 
 # --- guard 4: a git work tree with a checked-out branch (not detached) ---
 git rev-parse --is-inside-work-tree >/dev/null 2>&1 || exit 0

@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.12.2 — 2026-07-10
+
+- **`scripts/hook_lib.sh`: one home for the parsing every gate script copy-pasted.** Ponytail-review finding: the hook/gate scripts each hand-rolled the same stdin/cwd preamble, JSON field extraction, and — the part that matters — the `loop.config.md` parse. `protected_branches` parsed in four places was a gate-consistency risk: a drift between `decision_gate` and `auto_push`/`auto_pr`/`branch_guard` is a gate hole, not a style issue. Now `hook_init`/`json_str`/`bash_cmd`/`stop_hook_active`/`hook_debug`/`config_field`/`cfg_flag`/`protected_re` live in one sourced lib. Behavior identical — every pre-existing test passes unmodified. Also: merged the `rm -rf`/`-fr` flag-order regexes into one (plus a new `-fr` deny test), and dropped the dead `commands/*.md` glob from `check_budget.sh` (the legacy dir is long gone). `hooks.json` unchanged — no installed-version skew. Net −65 lines; 161 tests, `ci_local.sh` ALL GREEN.
+
 ## 0.12.1 — 2026-07-10
 
 - **`fleet.sh --focus PID`: click a menubar row, land in that session's window.** Every SwiftBar dropdown row now carries a click action (`bash=… param1=--focus param2=<pid>`). Focus walks the session PID's process ancestry to the owning `.app` bundle — so it works for VS Code *and* Cursor, including AppTranslocation installs, with no hardcoded CLI path — then opens the session's cwd through the app's bundled CLI (`bin/code`/`bin/cursor`), which macOS resolves to *raising the already-open window* for that folder; non-Electron terminals fall back to an AppleScript app-level activate. Window-level by design: VS Code exposes no external API to focus a specific terminal tab, so picking the tab inside the raised window stays manual. Arg-validation covered in `test_fleet` (missing/dead/unknown pid); the raise itself verified live.

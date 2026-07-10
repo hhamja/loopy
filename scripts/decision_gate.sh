@@ -30,54 +30,25 @@
 
 set -u
 
-INPUT="$(cat 2>/dev/null || true)"
-
-# Hooks run in the project cwd; prefer the cwd field when present (mirrors stop_gate).
-HOOK_CWD="$(printf '%s' "$INPUT" | sed -n 's/.*"cwd"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' | head -n1)"
-if [ -n "$HOOK_CWD" ] && [ -d "$HOOK_CWD" ]; then
-  cd "$HOOK_CWD" 2>/dev/null || true
-fi
-
-LOOP_DIR=".claude/loop"
+# shellcheck source=scripts/hook_lib.sh
+. "$(cd "$(dirname "$0")" && pwd)/hook_lib.sh"
+hook_init
 
 # --- scope: loop projects only ---
 [ -d "$LOOP_DIR" ] || exit 0
 
-if [ "${LOOP_GUARD_DEBUG:-}" = "1" ]; then
-  printf '%s decision_gate input=%s\n' "$(date +%s)" "$INPUT" >> "$LOOP_DIR/.hook-debug.log" 2>/dev/null || true
-fi
+hook_debug decision_gate
 
-# --- extract the Bash command (same three-tier extraction as verifier_guard) ---
-if command -v jq >/dev/null 2>&1; then
-  CMD="$(printf '%s' "$INPUT" | jq -r '.tool_input.command // empty' 2>/dev/null || true)"
-elif command -v python3 >/dev/null 2>&1; then
-  CMD="$(printf '%s' "$INPUT" | python3 -c 'import json,sys
-try:
-    print(json.load(sys.stdin).get("tool_input", {}).get("command", ""))
-except Exception:
-    pass' 2>/dev/null || true)"
-else
-  CMD="$(printf '%s' "$INPUT" | sed -n 's/.*"command"[[:space:]]*:[[:space:]]*"\(.*\)".*/\1/p' | head -n1)"
-fi
+CMD="$(bash_cmd)"
 [ -n "$CMD" ] || exit 0
 
-CUR_SID="$(printf '%s' "$INPUT" | sed -n 's/.*"session_id"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' | head -n1)"
+CUR_SID="$(json_str session_id)"
 
-# --- config (the only stack-dependent knobs) ---
-CONFIG="$LOOP_DIR/loop.config.md"
-PROTECTED="main master"
-GATE_PUSH="false"
-EXTRA_GATES=""
-if [ -f "$CONFIG" ]; then
-  p="$(sed -n 's/^protected_branches:[[:space:]]*//p' "$CONFIG" | head -n1)"
-  case "$p" in ''|TODO*|'<'*) : ;; *) PROTECTED="$p" ;; esac
-  g="$(sed -n 's/^gate_push:[[:space:]]*//p' "$CONFIG" | head -n1)"
-  case "$g" in true) GATE_PUSH="true" ;; esac
-  EXTRA_GATES="$(sed -n 's/^extra_gates:[[:space:]]*//p' "$CONFIG" | head -n1)"
-  case "$EXTRA_GATES" in TODO*|'<'*) EXTRA_GATES="" ;; esac
-fi
-PROT_RE="$(printf '%s' "$PROTECTED" | tr -s ' ' '|' | sed 's/^|//;s/|$//')"
-[ -n "$PROT_RE" ] || PROT_RE="main|master"
+# --- config (the only stack-dependent knobs; accessors: hook_lib.sh) ---
+GATE_PUSH="$(cfg_flag gate_push false)"
+EXTRA_GATES="$(config_field extra_gates)"
+case "$EXTRA_GATES" in TODO*|'<'*) EXTRA_GATES="" ;; esac
+PROT_RE="$(protected_re)"
 
 # --- one-shot human-approval marker ---
 # approved <class>: true if .gate-approved authorizes this class (or "any") for this
@@ -166,11 +137,8 @@ fi
 #   ~ /$HOME  : whole home only — optional single trailing '/' then space/end
 #               (rm -rf ~, ~/, $HOME) but NOT ~/<subdir>
 CATA_TGT='(/([[:space:]]|/|[*]|$)|(~|[$]HOME|[$][{]HOME[}])/?([[:space:]]|$))'
-if printf '%s' "$CMD" | grep -Eq "${SEG}rm[[:space:]]+(-[a-zA-Z]*[[:space:]]+)*-[a-zA-Z]*[rR][a-zA-Z]*[fF][a-zA-Z]*[[:space:]]+${CATA_TGT}"; then
-  gate destructive "catastrophic rm -rf"
-fi
-if printf '%s' "$CMD" | grep -Eq "${SEG}rm[[:space:]]+(-[a-zA-Z]*[[:space:]]+)*-[a-zA-Z]*[fF][a-zA-Z]*[rR][a-zA-Z]*[[:space:]]+${CATA_TGT}"; then
-  gate destructive "catastrophic rm -fr"
+if printf '%s' "$CMD" | grep -Eq "${SEG}rm[[:space:]]+(-[a-zA-Z]*[[:space:]]+)*-[a-zA-Z]*([rR][a-zA-Z]*[fF]|[fF][a-zA-Z]*[rR])[a-zA-Z]*[[:space:]]+${CATA_TGT}"; then
+  gate destructive "catastrophic rm -rf/-fr"
 fi
 
 # 6. project-specific extra gates (opt-in regex; e.g. external endpoints, cost)
