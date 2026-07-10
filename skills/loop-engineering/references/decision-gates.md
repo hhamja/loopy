@@ -29,16 +29,20 @@ protected_branches: main master   # push targeting these is T2 (default: main ma
 gate_push: false                  # true = every git push is T2 (direct-to-main repos)
 auto_commit: true                 # true (default) = Stop hook commits leftover work at turn end
 auto_push: true                   # true (default) = Stop hook auto-pushes the work branch
+auto_pr: true                     # true (default) = Stop hook opens a PR for the pushed branch
+pr_draft: false                   # true = open that PR as a draft
 extra_gates:                      # optional grep -E regex for project-specific T2 (e.g. external endpoints, paid builds)
 ```
 
 The hook is scoped to loop projects only (a cwd with `.claude/loop/`); it never touches general git use elsewhere.
 
-Two Stop-hook scripts are the **active complement** to the block — the T0 rule "act autonomously, never re-ask" made mechanical for the two steps a human should never have to prompt:
+Three Stop-hook scripts are the **active complement** to the block — the T0 rule "act autonomously, never re-ask" made mechanical for the steps a human should never have to prompt. They run in order (commit → push → PR) so a turn ends with the work on a reviewable PR, and the human's only remaining action is the T2 merge:
 
 `scripts/auto_commit.sh` runs first: if the work tree has uncommitted changes it commits them (`git add -A`) with a generic backstop message, so a turn never ends with verified work left uncommitted. It is NOT gated on `protected_branches`/`gate_push` — a local commit is unconditionally T0 (undo with `git reset`), including on `main` in a direct-to-main repo where the workflow is "commit locally, human gates the push". The primary path is still the agent committing inline with a written message; this hook only fires when it didn't. Opt out with `auto_commit: false`. Commit failure logs to `.claude/loop/.last-commit` and never blocks the turn.
 
 `scripts/auto_push.sh` runs next: it pushes the current work branch so a human never has to say "and push it". It never pushes a `protected_branches` branch (that stays a human gate), stands down when `gate_push: true`, never force-pushes or pushes tags, and logs any failure to `.claude/loop/.last-push` without ever blocking the turn. Opt out with `auto_push: false`.
+
+`scripts/auto_pr.sh` runs last: once the branch is pushed it opens a pull request (`gh pr create --fill` — title/body from the commit log, base = the repo's default branch) so the human returns to a reviewable PR, not a bare branch. Opening a PR is T0 (reversible: close it; the *merge* is the T2 gate). It never opens a PR *from* a protected branch, requires an upstream (the branch was pushed) plus an authenticated `gh`, and — since a branch can carry a merged/closed PR and new commits — only creates when there is no *open* PR for the branch. `pr_draft: true` opens it as a draft. Opt out with `auto_pr: false`; outcome logs to `.claude/loop/.last-pr` and never blocks the turn.
 
 ## Passing a gate (the one-shot marker)
 

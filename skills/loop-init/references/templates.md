@@ -94,7 +94,9 @@ protected_branches: main master
 gate_push: false
 auto_commit: true
 auto_push: true
+auto_pr: true
+pr_draft: false
 extra_gates:
 ```
 
-`protected_branches`, `gate_push`, `extra_gates` drive the decision gate (`decision_gate.sh`, see the loop-engineering skill's `references/decision-gates.md`): pushing to `protected_branches` — or every push when `gate_push: true` — plus release/publish/merge are treated as irreversible (T2) and require human approval; `extra_gates` is an optional `grep -E` regex for project-specific T2 commands. `auto_commit: true` and `auto_push: true` (both default) are the active side of the same doctrine — at turn end the Stop hooks commit leftover work-branch changes (`auto_commit.sh`, a local commit is always T0) then push the branch (`auto_push.sh`), so a human never has to say "commit and push it"; push still never touches a protected branch and stands down when `gate_push: true`. Absent keys fall back to these defaults, so existing loops need no change.
+`protected_branches`, `gate_push`, `extra_gates` drive the decision gate (`decision_gate.sh`, see the loop-engineering skill's `references/decision-gates.md`): pushing to `protected_branches` — or every push when `gate_push: true` — plus release/publish/merge are treated as irreversible (T2) and require human approval; `extra_gates` is an optional `grep -E` regex for project-specific T2 commands. `auto_commit`, `auto_push`, `auto_pr` (all default `true`) are the active side of the same doctrine — at turn end the Stop hooks commit leftover work-branch changes (`auto_commit.sh`, a local commit is always T0), push the branch (`auto_push.sh`), then open a PR (`auto_pr.sh`, via `gh`), so a human returns to a reviewable PR and their only remaining action is the T2 merge. Push still never touches a protected branch and stands down when `gate_push: true`; the PR is never opened *from* a protected branch and only when no open PR already exists (`pr_draft: true` makes it a draft). Absent keys fall back to these defaults, so existing loops need no change.

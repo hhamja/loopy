@@ -445,6 +445,63 @@ test_auto_commit() {
   rm -rf "$tmp"
 }
 
+# ── auto_pr.sh: Stop hook that opens a PR for the pushed work branch ──
+# DRYRUN seam prints "WOULD: gh pr create ..." after the local git guards and
+# skips every gh call, so tests need no network or auth.
+autopr() { printf '%s' "$1" | LOOP_AUTOPR_DRYRUN=1 bash "$SCRIPTS/auto_pr.sh"; }
+
+# like mk_repo but also sets an upstream (branch pushed), which auto_pr requires.
+mk_repo_pushed() { mk_repo "$1" "$2"; ( cd "$1/work" && git push -q -u origin "$2" ) >/dev/null 2>&1; }
+
+test_auto_pr() {
+  printf '\nauto_pr.sh\n'
+  local tmp out
+
+  # guard 1: not a loop project
+  tmp="$(mktemp -d)"
+  out="$(autopr "$(printf '{"cwd":"%s"}' "$tmp")")"
+  assert_empty "$out" "no loop dir: no PR"
+  rm -rf "$tmp"
+
+  # guard 2: stop_hook_active
+  tmp="$(mktemp -d)"; mk_repo_pushed "$tmp" "feature/x"
+  out="$(autopr "$(printf '{"cwd":"%s/work","stop_hook_active":true}' "$tmp")")"
+  assert_empty "$out" "stop_hook_active: no PR"
+  rm -rf "$tmp"
+
+  # guard 3: auto_pr disabled
+  tmp="$(mktemp -d)"; mk_repo_pushed "$tmp" "feature/x"
+  printf 'auto_pr: false\n' > "$tmp/work/.claude/loop/loop.config.md"
+  out="$(autopr "$(printf '{"cwd":"%s/work"}' "$tmp")")"
+  assert_empty "$out" "auto_pr=false: no PR"
+  rm -rf "$tmp"
+
+  # guard 5: protected branch -> never open a PR from main
+  tmp="$(mktemp -d)"; mk_repo_pushed "$tmp" "main"
+  out="$(autopr "$(printf '{"cwd":"%s/work"}' "$tmp")")"
+  assert_empty "$out" "protected branch: no PR"
+  rm -rf "$tmp"
+
+  # guard 6: no upstream (branch never pushed) -> nothing to PR from
+  tmp="$(mktemp -d)"; mk_repo "$tmp" "feature/x"
+  out="$(autopr "$(printf '{"cwd":"%s/work"}' "$tmp")")"
+  assert_empty "$out" "no upstream: no PR"
+  rm -rf "$tmp"
+
+  # pushed work branch -> would open a PR (ready by default)
+  tmp="$(mktemp -d)"; mk_repo_pushed "$tmp" "feature/x"
+  out="$(autopr "$(printf '{"cwd":"%s/work"}' "$tmp")")"
+  assert_contains "$out" "WOULD: gh pr create --fill (head=feature/x)" "pushed branch: would open PR"
+  rm -rf "$tmp"
+
+  # pr_draft:true -> --draft flag added
+  tmp="$(mktemp -d)"; mk_repo_pushed "$tmp" "feature/x"
+  printf 'pr_draft: true\n' > "$tmp/work/.claude/loop/loop.config.md"
+  out="$(autopr "$(printf '{"cwd":"%s/work"}' "$tmp")")"
+  assert_contains "$out" "--fill --draft" "pr_draft=true: draft PR"
+  rm -rf "$tmp"
+}
+
 test_verifier_guard
 test_decision_gate
 test_stop_gate
@@ -453,6 +510,7 @@ test_gen_ci
 test_drive_next
 test_auto_push
 test_auto_commit
+test_auto_pr
 
 printf '\n%s passed, %s failed\n' "$pass" "$fail"
 [ "$fail" -eq 0 ]
