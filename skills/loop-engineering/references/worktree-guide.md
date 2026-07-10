@@ -1,6 +1,6 @@
-# Worktree Guide — parallel loop execution (reference only)
+# Worktree Guide — parallel loop execution
 
-The MVP ships no command that uses worktrees. This documents the procedure and merge policy for when parallelism is worth its token cost: several INDEPENDENT tasks, each with its own rubric subset.
+Implemented by `/loopy:loop-worktree` (spawn a worker / integrate finished workers); this file is the doctrine it follows. Parallelism must be worth its token cost: several INDEPENDENT tasks, each with its own rubric subset.
 
 ## Procedure
 

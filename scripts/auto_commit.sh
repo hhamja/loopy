@@ -28,6 +28,12 @@
 # a pathspec / diff-scoped stage. Commit failure (e.g. a pre-commit hook) NEVER
 # blocks the turn: logged to .claude/loop/.last-commit, hook still exits 0.
 #
+# Worker mode (loop.config.md has `worker: <task>`, set by /loopy:loop-worktree):
+# never stage ANYTHING under .claude/loop/ except results/ — a worker's outcome
+# goes in results/<task>.md (unique name, merges clean); its local state.md,
+# subset rubric/goal, and worker config stay uncommitted so integrating the task
+# branch can't conflict with — or overwrite — the orchestrator's loop files.
+#
 # Test seam: LOOP_AUTOCOMMIT_DRYRUN=1 prints "WOULD: git commit (<n> files)"
 # instead of committing. Silent in normal operation.
 
@@ -65,9 +71,11 @@ bash "$(cd "$(dirname "$0")" && pwd)/loop_lock.sh" gate "$CUR_SID" || exit 0
 # --- guard 3: disabled per project ---
 CONFIG="$LOOP_DIR/loop.config.md"
 AUTO_COMMIT="true"
+WORKER=""
 if [ -f "$CONFIG" ]; then
   a="$(sed -n 's/^auto_commit:[[:space:]]*//p' "$CONFIG" | head -n1)"
   case "$a" in false) AUTO_COMMIT="false" ;; esac
+  WORKER="$(sed -n 's/^worker:[[:space:]]*//p' "$CONFIG" | head -n1)"
 fi
 [ "$AUTO_COMMIT" = "true" ] || exit 0
 
@@ -76,8 +84,13 @@ git rev-parse --is-inside-work-tree >/dev/null 2>&1 || exit 0
 BRANCH="$(git symbolic-ref --short -q HEAD 2>/dev/null || true)"
 [ -n "$BRANCH" ] || exit 0   # detached HEAD -> never auto-commit
 
-# --- guard 5: something to commit ---
+# --- guard 5: something to commit (worker mode: only results/ counts under .claude/loop/) ---
 STATUS="$(git status --porcelain 2>/dev/null)"
+if [ -n "$WORKER" ]; then
+  # -uall expands collapsed untracked dirs (`?? .claude/`) into file lines, then
+  # drop .claude/loop/ lines unless they are results/ (sed: on non-results lines, delete loop lines)
+  STATUS="$(git status --porcelain -uall 2>/dev/null | sed '\#\.claude/loop/results#!{\#\.claude/loop/#d;}')"
+fi
 [ -n "$STATUS" ] || exit 0
 N="$(printf '%s\n' "$STATUS" | grep -c .)"
 
@@ -92,7 +105,12 @@ if [ "${LOOP_AUTOCOMMIT_DRYRUN:-}" = "1" ]; then
 fi
 
 # --- commit (best-effort; failure is logged, never blocks the turn) ---
-git add -A >/dev/null 2>&1
+if [ -n "$WORKER" ]; then
+  git add -A -- . ':!.claude/loop' >/dev/null 2>&1
+  git add -A -- .claude/loop/results >/dev/null 2>&1   # re-include results/<task>.md
+else
+  git add -A >/dev/null 2>&1
+fi
 ERR="$(git commit -m "$MSG" 2>&1)"; RC=$?
 {
   printf 'branch=%s\n' "$BRANCH"

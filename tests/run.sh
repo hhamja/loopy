@@ -572,6 +572,38 @@ test_auto_commit() {
   assert_exit "$((before + 1))" "$after" "real run: exactly one new commit"
   assert_empty "$(git -C "$tmp/work" status --porcelain)" "real run: tree is clean after commit"
   rm -rf "$tmp"
+
+  # worker mode: shared loop state doesn't count toward "something to commit"
+  tmp="$(mktemp -d)"; mk_repo "$tmp" "loop/t1"
+  printf 'worker: t1\n' > "$tmp/work/.claude/loop/loop.config.md"
+  echo progress > "$tmp/work/.claude/loop/state.md"
+  out="$(autocommit "$(printf '{"cwd":"%s/work","session_id":"S1"}' "$tmp")")"
+  assert_empty "$out" "worker + only state.md dirty: no commit"
+  rm -rf "$tmp"
+
+  # worker mode dryrun: only the source file counts (config + state filtered out)
+  tmp="$(mktemp -d)"; mk_repo "$tmp" "loop/t1"
+  printf 'worker: t1\n' > "$tmp/work/.claude/loop/loop.config.md"
+  echo progress > "$tmp/work/.claude/loop/state.md"
+  echo dirty > "$tmp/work/f2"
+  out="$(autocommit "$(printf '{"cwd":"%s/work","session_id":"S1"}' "$tmp")")"
+  assert_contains "$out" "WOULD: git commit (1 files)" "worker: source counted, loop files not"
+  rm -rf "$tmp"
+
+  # worker mode real run: sources + results/<task>.md committed, shared state NOT
+  tmp="$(mktemp -d)"; mk_repo "$tmp" "loop/t1"
+  printf 'worker: t1\n' > "$tmp/work/.claude/loop/loop.config.md"
+  echo progress > "$tmp/work/.claude/loop/state.md"
+  mkdir -p "$tmp/work/.claude/loop/results"
+  printf 'R1 pass\n' > "$tmp/work/.claude/loop/results/t1.md"
+  echo dirty > "$tmp/work/f2"
+  printf '{"cwd":"%s/work","session_id":"S1"}' "$tmp" | bash "$SCRIPTS/auto_commit.sh" >/dev/null 2>&1
+  out="$(git -C "$tmp/work" show --name-only --format= HEAD)"
+  assert_contains "$out" "f2" "worker real run: source committed"
+  assert_contains "$out" ".claude/loop/results/t1.md" "worker real run: results/<task>.md committed"
+  case "$out" in *state.md*) bad "worker real run: state.md NOT committed" "state.md in commit" ;; *) ok "worker real run: state.md NOT committed" ;; esac
+  case "$out" in *loop.config.md*) bad "worker real run: worker config NOT committed" "loop.config.md in commit" ;; *) ok "worker real run: worker config NOT committed" ;; esac
+  rm -rf "$tmp"
 }
 
 # ── auto_pr.sh: Stop hook that opens a PR for the pushed work branch ──
