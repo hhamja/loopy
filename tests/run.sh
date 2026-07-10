@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# loop-harness test harness — pure bash, zero dependencies.
+# loopy test harness — pure bash, zero dependencies.
 # Runs the hook scripts against fixed inputs and asserts exit code + stdout,
 # so CI needs nothing beyond bash itself.
 #   bash tests/run.sh   -> exit 0 = all pass, exit 1 = at least one failure
@@ -32,12 +32,21 @@ test_verifier_guard() {
   out="$(guard '{"agent_type":"main","tool_input":{"command":"rm x"}}')"
   assert_empty "$out" "non-verifier agent: no deny"
 
-  out="$(guard '{"agent_type":"loop-harness:verifier","tool_input":{"command":"rm -rf build"}}')"; rc=$?
+  out="$(guard '{"agent_type":"loopy:verifier","tool_input":{"command":"rm -rf build"}}')"; rc=$?
   assert_exit 0 "$rc" "verifier rm: exit 0 (deny parsed only on exit 0)"
   assert_contains "$out" '"permissionDecision":"deny"' "verifier rm: deny"
 
-  out="$(guard '{"agent_type":"loop-harness:auditor","tool_input":{"command":"rm -rf x"}}')"
+  out="$(guard '{"agent_type":"loopy:auditor","tool_input":{"command":"rm -rf x"}}')"
   assert_contains "$out" '"deny"' "auditor rm: deny (read-only checker)"
+
+  out="$(guard '{"agent_type":"loopy:architect","tool_input":{"command":"echo x > diagnosis.md"}}')"
+  assert_contains "$out" '"deny"' "architect redirect: deny (read-only checker)"
+
+  out="$(guard '{"agent_type":"loop-architect","tool_input":{"command":"cat rubric.md"}}')"
+  assert_empty "$out" "architect read: allow"
+
+  out="$(guard '{"agent_type":"loopy:design-critic","tool_input":{"command":"rm -rf x"}}')"
+  assert_contains "$out" '"deny"' "design-critic rm: deny (read-only checker)"
 
   out="$(guard '{"agent_type":"verifier","tool_input":{"command":"git commit -m x"}}')"
   assert_contains "$out" '"deny"' "verifier git commit: deny"
@@ -50,6 +59,19 @@ test_verifier_guard() {
 
   out="$(guard '{"agent_type":"verifier","tool_input":{"command":"echo hi > out.txt"}}')"
   assert_contains "$out" '"deny"' "verifier redirect to file: deny"
+
+  out="$(guard '{"agent_type":"verifier","tool_input":{"command":"echo '\''hi'\'' > out.txt"}}')"
+  assert_contains "$out" '"deny"' "verifier redirect after quoted arg: still deny"
+
+  out="$(guard '{"agent_type":"verifier","tool_input":{"command":"grep -rn '\''foo->bar'\'' src"}}')"
+  assert_empty "$out" "verifier grep arrow in quotes: allow (> is data, not a redirect)"
+
+  out="$(guard '{"agent_type":"verifier","tool_input":{"command":"grep -E '\''x => y'\'' f"}}')"
+  assert_empty "$out" "verifier grep fat-arrow in quotes: allow"
+
+  # shellcheck disable=SC2016  # awk's $1 is data inside single quotes, literal by design
+  out="$(guard '{"agent_type":"verifier","tool_input":{"command":"awk '\''{if ($1 > 5) print}'\'' f"}}')"
+  assert_empty "$out" "verifier awk > compare in quotes: allow"
 
   out="$(guard '{"agent_type":"verifier","tool_input":{"command":"pnpm test 2>&1"}}')"
   assert_empty "$out" "verifier test 2>&1: allow (idiom)"
@@ -154,6 +176,9 @@ test_decision_gate() {
   out="$(dgate "$tmp" "git push --force origin feature/x")"
   assert_contains "$out" '"deny"' "force-push: deny"
 
+  out="$(dgate "$tmp" "git push -f origin feature/x")"
+  assert_contains "$out" '"deny"' "force-push short -f: deny (leading push space consumed)"
+
   out="$(dgate "$tmp" "git push --tags")"
   assert_contains "$out" '"deny"' "tag push: deny"
 
@@ -168,6 +193,18 @@ test_decision_gate() {
 
   out="$(dgate "$tmp" "rm -rf /")"
   assert_contains "$out" '"deny"' "catastrophic rm: deny"
+
+  out="$(dgate "$tmp" "rm -rf ~")"
+  assert_contains "$out" '"deny"' "whole home ~: deny"
+
+  out="$(dgate "$tmp" "rm -rf \$HOME")"
+  assert_contains "$out" '"deny"' "whole home \$HOME: deny"
+
+  out="$(dgate "$tmp" "rm -rf ~/.claude/skills/x")"
+  assert_empty "$out" "home subdir rm: allow (reversible T1, not catastrophic)"
+
+  out="$(dgate "$tmp" "rm -rf \$HOME/.cache")"
+  assert_empty "$out" "\$HOME subdir rm: allow (reversible T1)"
 
   out="$(dgate "$tmp" "git commit -m x")"
   assert_empty "$out" "local commit: allow"
@@ -362,6 +399,139 @@ test_auto_push() {
   out="$(autopush "$(printf '{"cwd":"%s/work","session_id":"S1"}' "$tmp")")"
   assert_empty "$out" "protected branch: no push"
   rm -rf "$tmp"
+
+  # pre-push CI gate: red scripts/ci_local.sh -> stand down (no push)
+  tmp="$(mktemp -d)"; mk_repo "$tmp" "feature/x"
+  mkdir -p "$tmp/work/scripts"; printf '#!/bin/sh\nexit 1\n' > "$tmp/work/scripts/ci_local.sh"
+  chmod +x "$tmp/work/scripts/ci_local.sh"
+  out="$(autopush "$(printf '{"cwd":"%s/work","session_id":"S1"}' "$tmp")")"
+  assert_empty "$out" "ci_local red: no push"
+  rm -rf "$tmp"
+
+  # pre-push CI gate: green scripts/ci_local.sh -> push proceeds
+  tmp="$(mktemp -d)"; mk_repo "$tmp" "feature/x"
+  mkdir -p "$tmp/work/scripts"; printf '#!/bin/sh\nexit 0\n' > "$tmp/work/scripts/ci_local.sh"
+  chmod +x "$tmp/work/scripts/ci_local.sh"
+  out="$(autopush "$(printf '{"cwd":"%s/work","session_id":"S1"}' "$tmp")")"
+  assert_contains "$out" "WOULD: git push" "ci_local green: push proceeds"
+  rm -rf "$tmp"
+}
+
+# ── auto_commit.sh: Stop hook that commits leftover work-branch changes ──
+# DRYRUN seam prints "WOULD: git commit ..." instead of committing.
+autocommit() { printf '%s' "$1" | LOOP_AUTOCOMMIT_DRYRUN=1 bash "$SCRIPTS/auto_commit.sh"; }
+
+test_auto_commit() {
+  printf '\nauto_commit.sh\n'
+  local tmp out before after
+
+  # guard 1: not a loop project
+  tmp="$(mktemp -d)"
+  out="$(autocommit "$(printf '{"cwd":"%s"}' "$tmp")")"
+  assert_empty "$out" "no loop dir: no commit"
+  rm -rf "$tmp"
+
+  # guard 2: stop_hook_active (already re-prompting)
+  tmp="$(mktemp -d)"; mk_repo "$tmp" "feature/x"; echo dirty > "$tmp/work/f2"
+  out="$(autocommit "$(printf '{"cwd":"%s/work","stop_hook_active":true}' "$tmp")")"
+  assert_empty "$out" "stop_hook_active: no commit"
+  rm -rf "$tmp"
+
+  # guard 3: auto_commit disabled
+  tmp="$(mktemp -d)"; mk_repo "$tmp" "feature/x"; echo dirty > "$tmp/work/f2"
+  printf 'auto_commit: false\n' > "$tmp/work/.claude/loop/loop.config.md"
+  out="$(autocommit "$(printf '{"cwd":"%s/work"}' "$tmp")")"
+  assert_empty "$out" "auto_commit=false: no commit"
+  rm -rf "$tmp"
+
+  # guard 5: clean tree -> nothing to commit
+  tmp="$(mktemp -d)"; mk_repo "$tmp" "feature/x"
+  out="$(autocommit "$(printf '{"cwd":"%s/work"}' "$tmp")")"
+  assert_empty "$out" "clean tree: no commit"
+  rm -rf "$tmp"
+
+  # dirty work branch -> would commit (untracked file staged by add -A)
+  tmp="$(mktemp -d)"; mk_repo "$tmp" "feature/x"; echo dirty > "$tmp/work/f2"
+  out="$(autocommit "$(printf '{"cwd":"%s/work"}' "$tmp")")"
+  assert_contains "$out" "WOULD: git commit" "dirty branch: would commit"
+  rm -rf "$tmp"
+
+  # local commit is T0 even on a protected branch (direct-to-main workflow)
+  tmp="$(mktemp -d)"; mk_repo "$tmp" "main"; echo dirty > "$tmp/work/f2"
+  out="$(autocommit "$(printf '{"cwd":"%s/work"}' "$tmp")")"
+  assert_contains "$out" "WOULD: git commit" "protected branch: still commits (push is what's gated)"
+  rm -rf "$tmp"
+
+  # real run (no dryrun): a new commit lands and the tree goes clean.
+  # loop projects gitignore .claude/loop/.* (loop-init), so the hook's own
+  # .last-commit log stays out of the tree — mirror that here.
+  tmp="$(mktemp -d)"; mk_repo "$tmp" "feature/x"
+  printf '.claude/loop/.*\n' > "$tmp/work/.gitignore"
+  ( cd "$tmp/work" && git add .gitignore && git commit -qm ignore )
+  echo dirty > "$tmp/work/f2"
+  before="$(git -C "$tmp/work" rev-list --count HEAD)"
+  printf '{"cwd":"%s/work"}' "$tmp" | bash "$SCRIPTS/auto_commit.sh" >/dev/null 2>&1
+  after="$(git -C "$tmp/work" rev-list --count HEAD)"
+  assert_exit "$((before + 1))" "$after" "real run: exactly one new commit"
+  assert_empty "$(git -C "$tmp/work" status --porcelain)" "real run: tree is clean after commit"
+  rm -rf "$tmp"
+}
+
+# ── auto_pr.sh: Stop hook that opens a PR for the pushed work branch ──
+# DRYRUN seam prints "WOULD: gh pr create ..." after the local git guards and
+# skips every gh call, so tests need no network or auth.
+autopr() { printf '%s' "$1" | LOOP_AUTOPR_DRYRUN=1 bash "$SCRIPTS/auto_pr.sh"; }
+
+# like mk_repo but also sets an upstream (branch pushed), which auto_pr requires.
+mk_repo_pushed() { mk_repo "$1" "$2"; ( cd "$1/work" && git push -q -u origin "$2" ) >/dev/null 2>&1; }
+
+test_auto_pr() {
+  printf '\nauto_pr.sh\n'
+  local tmp out
+
+  # guard 1: not a loop project
+  tmp="$(mktemp -d)"
+  out="$(autopr "$(printf '{"cwd":"%s"}' "$tmp")")"
+  assert_empty "$out" "no loop dir: no PR"
+  rm -rf "$tmp"
+
+  # guard 2: stop_hook_active
+  tmp="$(mktemp -d)"; mk_repo_pushed "$tmp" "feature/x"
+  out="$(autopr "$(printf '{"cwd":"%s/work","stop_hook_active":true}' "$tmp")")"
+  assert_empty "$out" "stop_hook_active: no PR"
+  rm -rf "$tmp"
+
+  # guard 3: auto_pr disabled
+  tmp="$(mktemp -d)"; mk_repo_pushed "$tmp" "feature/x"
+  printf 'auto_pr: false\n' > "$tmp/work/.claude/loop/loop.config.md"
+  out="$(autopr "$(printf '{"cwd":"%s/work"}' "$tmp")")"
+  assert_empty "$out" "auto_pr=false: no PR"
+  rm -rf "$tmp"
+
+  # guard 5: protected branch -> never open a PR from main
+  tmp="$(mktemp -d)"; mk_repo_pushed "$tmp" "main"
+  out="$(autopr "$(printf '{"cwd":"%s/work"}' "$tmp")")"
+  assert_empty "$out" "protected branch: no PR"
+  rm -rf "$tmp"
+
+  # guard 6: no upstream (branch never pushed) -> nothing to PR from
+  tmp="$(mktemp -d)"; mk_repo "$tmp" "feature/x"
+  out="$(autopr "$(printf '{"cwd":"%s/work"}' "$tmp")")"
+  assert_empty "$out" "no upstream: no PR"
+  rm -rf "$tmp"
+
+  # pushed work branch -> would open a PR (ready by default)
+  tmp="$(mktemp -d)"; mk_repo_pushed "$tmp" "feature/x"
+  out="$(autopr "$(printf '{"cwd":"%s/work"}' "$tmp")")"
+  assert_contains "$out" "WOULD: gh pr create --fill (head=feature/x)" "pushed branch: would open PR"
+  rm -rf "$tmp"
+
+  # pr_draft:true -> --draft flag added
+  tmp="$(mktemp -d)"; mk_repo_pushed "$tmp" "feature/x"
+  printf 'pr_draft: true\n' > "$tmp/work/.claude/loop/loop.config.md"
+  out="$(autopr "$(printf '{"cwd":"%s/work"}' "$tmp")")"
+  assert_contains "$out" "--fill --draft" "pr_draft=true: draft PR"
+  rm -rf "$tmp"
 }
 
 test_verifier_guard
@@ -371,6 +541,8 @@ test_budget
 test_gen_ci
 test_drive_next
 test_auto_push
+test_auto_commit
+test_auto_pr
 
 printf '\n%s passed, %s failed\n' "$pass" "$fail"
 [ "$fail" -eq 0 ]

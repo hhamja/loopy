@@ -1,5 +1,7 @@
 ---
+name: loop-ci
 description: Scaffold a GitHub Actions CI workflow from the loop's detected test/lint/build commands
+disable-model-invocation: true
 ---
 
 # loop-ci — scaffold CI from the loop's own checks

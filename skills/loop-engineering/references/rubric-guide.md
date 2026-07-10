@@ -26,7 +26,7 @@ Keep 5-15 criteria. Fewer than 5 usually means the goal is under-specified; more
 Documents, configs and prose can be machine-verified by structure. Example:
 
 ```markdown
-- [ ] R5: README quickstart mentions all three namespaced commands — verify: grep -c 'loop-harness:loop-' README.md (expect: >= 3)
+- [ ] R5: README quickstart mentions all three namespaced commands — verify: grep -c 'loopy:loop-' README.md (expect: >= 3)
 ```
 
 Other structural checks: word counts (`wc -w`), required headings (`grep '^## '`), JSON/YAML parseability (`jq . file.json`), internal link targets existing (`test -f`).

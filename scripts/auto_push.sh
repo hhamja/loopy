@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# loop-harness auto-push (Stop hook).
+# loopy auto-push (Stop hook).
 #
 # Realizes the decision doctrine's T0 rule "pushing a work branch is reversible ->
 # act autonomously, never re-ask" (references/decision-gates.md). decision_gate.sh
@@ -91,6 +91,18 @@ else
   git remote get-url origin >/dev/null 2>&1 || exit 0
   git rev-parse --verify -q HEAD >/dev/null 2>&1 || exit 0
   set -- push -u origin "$BRANCH"
+fi
+
+# --- pre-push local-CI gate: never push a red tree ---
+# If the repo ships scripts/ci_local.sh (the single source of the CI checks), run
+# it and stand down on failure, so a red commit never reaches origin and the PR
+# never shows a red required check. Absent script -> no gate (other projects use
+# their own verify command). ponytail: this pays CI's lint+test cost locally at
+# turn end — that is the point; upgrade path is a per-project verify_cmd key.
+if [ -x scripts/ci_local.sh ] && ! bash scripts/ci_local.sh >/dev/null 2>&1; then
+  { printf 'branch=%s\ncmd=(skipped: ci_local.sh red)\nexit=1\nupdated_epoch=%s\n' \
+      "$BRANCH" "$(date +%s 2>/dev/null || echo 0)"; } > "$LOOP_DIR/.last-push" 2>/dev/null || true
+  exit 0
 fi
 
 # --- test seam: print the command instead of running it ---

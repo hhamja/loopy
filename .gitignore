@@ -49,16 +49,11 @@ temp/
 *.key
 secrets/
 
-# ── loop-harness 런타임 산출물 ─────────────────────────
-# .claude/loop/ 상태 파일은 커밋 대상이지만, 아래 임시 산출물은 세션마다
-# 새로 생기는 휘발성 파일이라 절대 커밋하지 않는다.
-.claude/loop/.run-marker
-.claude/loop/.last-usage
-.claude/loop/.hook-debug.log
-.claude/loop/.codex-prompt
-.claude/loop/.codex-last
-.claude/loop/.codex-log
-.claude/loop/.gate-approved
+# ── Claude Code / loopy 로컬 런타임 ─────────────────────
+# 소스(skills·agents 등)는 전부 레포 루트에 있고, .claude/ 아래엔 세션마다
+# 새로 생기는 런타임 상태(.claude/loop/)만 쌓이므로 통째로 무시한다.
+# 훗날 loop 상태를 커밋하려면 `git add -f`.
+.claude/
 
 # ── 언어 도구 산출물 (도구 도입 시 대비) ───────────────
 node_modules/

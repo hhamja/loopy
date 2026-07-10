@@ -15,7 +15,7 @@ Design the system that prompts the agent instead of prompting the agent each tur
 
 ## Structure
 
-Plugin = immutable logic (installed once per machine). `.claude/loop/` = mutable state (once per project, created by `/loop-harness:loop-init`): `goal.md`, `rubric.md`, `state.md` (summary rewritten each cycle, max 100 lines), `memory.md`, `review.md` (human review summary, every cycle), `loop.config.md` (the only stack-dependent file).
+Plugin = immutable logic (installed once per machine). `.claude/loop/` = mutable state (once per project, created by `/loopy:loop-init`): `goal.md`, `rubric.md`, `state.md` (summary rewritten each cycle, max 100 lines), `memory.md`, `review.md` (human review summary, every cycle), `loop.config.md` (the only stack-dependent file).
 
 ## Cycle shape
 
@@ -31,7 +31,6 @@ Use the `explorer` agent (haiku, read-only) when a cycle needs codebase scouting
 
 ## When to read references/
 
-- Macro architecture / leverage rationale — 6 principles, 7 layers → `references/elite-loop-engineering.md`
 - Writing or fixing rubric criteria, or a criterion feels subjective → `references/rubric-guide.md`
 - Recording a failure, deciding what to distill, `[plugin]` vs `[project]` tagging → `references/memory-protocol.md`
 - Running parallel loop tasks in git worktrees, merging results → `references/worktree-guide.md`

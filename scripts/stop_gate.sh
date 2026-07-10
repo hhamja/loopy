@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# loop-harness stop gate (Stop hook).
+# loopy stop gate (Stop hook).
 #
 # Verdict order — block ONLY if all four hold (fail-open on any doubt):
 #   1. .claude/loop/ exists              (else: non-loop session, pass)
