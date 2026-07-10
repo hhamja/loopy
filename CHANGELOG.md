@@ -1,8 +1,12 @@
 # Changelog
 
-## 0.12.2 — 2026-07-10
+## 0.12.3 — 2026-07-10
 
 - **`scripts/hook_lib.sh`: one home for the parsing every gate script copy-pasted.** Ponytail-review finding: the hook/gate scripts each hand-rolled the same stdin/cwd preamble, JSON field extraction, and — the part that matters — the `loop.config.md` parse. `protected_branches` parsed in four places was a gate-consistency risk: a drift between `decision_gate` and `auto_push`/`auto_pr`/`branch_guard` is a gate hole, not a style issue. Now `hook_init`/`json_str`/`bash_cmd`/`stop_hook_active`/`hook_debug`/`config_field`/`cfg_flag`/`protected_re` live in one sourced lib. Behavior identical — every pre-existing test passes unmodified. Also: merged the `rm -rf`/`-fr` flag-order regexes into one (plus a new `-fr` deny test), and dropped the dead `commands/*.md` glob from `check_budget.sh` (the legacy dir is long gone). `hooks.json` unchanged — no installed-version skew. Net −65 lines; 161 tests, `ci_local.sh` ALL GREEN.
+
+## 0.12.2 — 2026-07-10
+
+- **`decision_gate.sh`: 3 honest-agent gate holes closed** (reproduced in `harness-review.md`, merged in PR #11; this release only cuts a version so installed plugins actually pick the fix up). R1: catastrophic-delete matcher now catches the root-glob form (`rm -rf /*`, the classic empty-var `rm -rf "$DIR"/*` expansion) while still allowing home subdirs. R2: protected-branch push matcher now also gates fully-qualified refspecs (`HEAD:refs/heads/<protected>`) without over-gating `feature/main`-style work branches. R3: an unreadable clock (`date +%s` returning 0) no longer re-approves an expired `.gate-approved` marker — freshness now fails closed. Regression tests for all three + an over-gate guard; suite at 163 passing.
 
 ## 0.12.1 — 2026-07-10
 
