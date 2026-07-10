@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.10.0 — 2026-07-10
+
+- **Autonomous CI remediation: the loop keeps its own PR green; only the merge is human.** By the reversibility×impact doctrine, fixing a red CI on a work branch is T0/T1 (reversible, local) — so leaving a red PR for the human, or asking whether to fix it, is over-confirmation. The gap: the Stop hooks (commit→push→PR) open a PR but nothing then drives a red run back to green, so a remote-only failure could sit red.
+  - New `scripts/ci_watch.sh`: blocks until **this commit's** CI run concludes (matches the run by HEAD sha; deadline-bounded so it can never hang), exit 0 = green / nothing to watch, exit 1 = red with the failing job log tail. It is a **tool the drive loop runs, deliberately NOT a hook** — CI is async and a Stop hook must never block; watching + fixing is multi-step loop work.
+  - Wired into `loop-run`: the **green gate** now watches remote CI to green before declaring done (red → reopen the failing check as a rubric criterion → fix → re-push → re-watch, bounded by `max_iterations`; *stuck past the cap* is the only thing that escalates to the human). **Preflight reconcile**: on entry, a branch with a red open PR — or commits ahead of base with no open PR (a prior PR merged, then new commits landed) — is resolved before new work. Disabling/skipping a check to force green is called out as T2-class test/CI tampering.
+  - Resolution timing is explicit: local-reproducible red is caught *pre-push* (`ci_local.sh` gate); remote-only red is fixed *in the active drive session* right after `gh` reports; a walked-away session's red is picked up at the *next drive turn* (reconcile). There is no daemon — loopy is not a long-lived process. Documented in `decision-gates.md`, `green-gate.md`, `preflight.md`; covered by new `tests/run.sh` cases (98 pass).
+
 ## 0.9.3 — 2026-07-10
 
 - Follow-up self-review (`loop-architect` + `design-critic` re-run, holes reproduced by the orchestrator). Both converge with the standing `harness-review.md`: **L3/5**, capped by the documented holdout gap; the adversarial bypasses (marker/config forgery, `git -C`/`eval`/`sh -c` wrappers, `gh api …/merge`, interpreter writes past `verifier_guard`, unhooked Write/MCP) remain out of scope by the stated threat model (gates are a **forgetfulness backstop, not a sandbox**) and stay escalated, not auto-fixed. Two honest-agent findings were fixed:

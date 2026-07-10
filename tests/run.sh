@@ -541,6 +541,34 @@ test_auto_pr() {
   rm -rf "$tmp"
 }
 
+# ── ci_watch.sh: blocks on the current commit's CI run; loop-owned green gate ──
+# A CLI tool (not a hook): runs in the cwd, no JSON stdin. DRYRUN prints "WOULD:"
+# after the local git guards and touches no gh, so tests need no network or auth.
+ciwatch() { ( cd "$1" && LOOP_CIWATCH_DRYRUN=1 bash "$SCRIPTS/ci_watch.sh" ); }
+
+test_ci_watch() {
+  printf '\nci_watch.sh\n'
+  local tmp out
+
+  # not a loop project -> skip
+  tmp="$(mktemp -d)"
+  out="$(ciwatch "$tmp")"
+  assert_contains "$out" "SKIP: not a loop project" "no loop dir: skip"
+  rm -rf "$tmp"
+
+  # loop project on a branch but no upstream -> skip (push first)
+  tmp="$(mktemp -d)"; mk_repo "$tmp" "feature/x"
+  out="$(ciwatch "$tmp/work")"
+  assert_contains "$out" "SKIP: no upstream" "no upstream: skip"
+  rm -rf "$tmp"
+
+  # pushed branch -> would watch this commit's run
+  tmp="$(mktemp -d)"; mk_repo_pushed "$tmp" "feature/x"
+  out="$(ciwatch "$tmp/work")"
+  assert_contains "$out" "WOULD: watch CI run" "pushed branch: would watch"
+  rm -rf "$tmp"
+}
+
 test_verifier_guard
 test_decision_gate
 test_stop_gate
@@ -550,6 +578,7 @@ test_drive_next
 test_auto_push
 test_auto_commit
 test_auto_pr
+test_ci_watch
 
 printf '\n%s passed, %s failed\n' "$pass" "$fail"
 [ "$fail" -eq 0 ]
