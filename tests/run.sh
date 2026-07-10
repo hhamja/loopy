@@ -258,6 +258,75 @@ test_budget() {
   assert_contains "$out" "BUDGET OK" "repo budget: BUDGET OK"
 }
 
+# ── check_memory.sh: Stop hook — memory/state hygiene, block JSON or empty, exit 0 ──
+# Blocks on contract/protocol violations (missing state field, untagged entry);
+# passes on a clean or absent loop; fails open when re-prompting.
+cmem() { printf '%s' "$1" | bash "$SCRIPTS/check_memory.sh"; }
+
+test_check_memory() {
+  printf '\ncheck_memory.sh\n'
+  local tmp out rc
+
+  # not a loop project
+  tmp="$(mktemp -d)"
+  out="$(cmem "$(printf '{"cwd":"%s"}' "$tmp")")"; rc=$?
+  assert_exit 0 "$rc" "no loop dir: exit 0"
+  assert_empty "$out" "no loop dir: no block"
+  rm -rf "$tmp"
+
+  # loop dir with only review.md (this repo's shape) -> nothing to judge, pass
+  tmp="$(mktemp -d)"; mkdir -p "$tmp/.claude/loop"
+  printf 'x\n' > "$tmp/.claude/loop/review.md"
+  out="$(cmem "$(printf '{"cwd":"%s"}' "$tmp")")"
+  assert_empty "$out" "no state/memory: no block"
+  rm -rf "$tmp"
+
+  # stop_hook_active: never block again even with a violation present
+  tmp="$(mktemp -d)"; mkdir -p "$tmp/.claude/loop"
+  printf 'human_gate: none\n' > "$tmp/.claude/loop/state.md"  # missing loop_active
+  out="$(cmem "$(printf '{"cwd":"%s","stop_hook_active":true}' "$tmp")")"
+  assert_empty "$out" "stop_hook_active: no block"
+  rm -rf "$tmp"
+
+  # clean state + clean memory (fresh init shape) -> pass
+  tmp="$(mktemp -d)"; mkdir -p "$tmp/.claude/loop"
+  printf 'loop_active: false\nhuman_gate: none\niteration: 0\n' > "$tmp/.claude/loop/state.md"
+  printf '## Distilled rules (consult before every cycle)\n(none yet)\n\n## Raw log\n(compress when this section exceeds 200 lines)\n' > "$tmp/.claude/loop/memory.md"
+  out="$(cmem "$(printf '{"cwd":"%s"}' "$tmp")")"
+  assert_empty "$out" "clean state+memory: no block"
+  rm -rf "$tmp"
+
+  # missing loop_active field -> block (drive_next contract)
+  tmp="$(mktemp -d)"; mkdir -p "$tmp/.claude/loop"
+  printf 'human_gate: none\niteration: 0\n' > "$tmp/.claude/loop/state.md"
+  out="$(cmem "$(printf '{"cwd":"%s"}' "$tmp")")"; rc=$?
+  assert_exit 0 "$rc" "missing field: exit 0 (block parsed only on exit 0)"
+  assert_contains "$out" '"decision":"block"' "missing loop_active: block"
+  rm -rf "$tmp"
+
+  # untagged distilled rule -> block; tagged -> pass
+  tmp="$(mktemp -d)"; mkdir -p "$tmp/.claude/loop"
+  printf 'loop_active: true\nhuman_gate: none\n' > "$tmp/.claude/loop/state.md"
+  printf '## Distilled rules\n- serialize suites that bind ports\n\n## Raw log\n' > "$tmp/.claude/loop/memory.md"
+  out="$(cmem "$(printf '{"cwd":"%s"}' "$tmp")")"
+  assert_contains "$out" '"decision":"block"' "untagged distilled rule: block"
+  printf '## Distilled rules\n- [project] serialize suites that bind ports\n\n## Raw log\n' > "$tmp/.claude/loop/memory.md"
+  out="$(cmem "$(printf '{"cwd":"%s"}' "$tmp")")"
+  assert_empty "$out" "tagged distilled rule: no block"
+  rm -rf "$tmp"
+
+  # untagged raw-log entry -> block; tagged -> pass
+  tmp="$(mktemp -d)"; mkdir -p "$tmp/.claude/loop"
+  printf 'loop_active: true\nhuman_gate: none\n' > "$tmp/.claude/loop/state.md"
+  printf '## Distilled rules\n(none yet)\n\n## Raw log\n### R3 test flaky\n- fail: x\n' > "$tmp/.claude/loop/memory.md"
+  out="$(cmem "$(printf '{"cwd":"%s"}' "$tmp")")"
+  assert_contains "$out" '"decision":"block"' "untagged raw-log entry: block"
+  printf '## Distilled rules\n(none yet)\n\n## Raw log\n### [project] R3 test flaky\n- fail: x\n' > "$tmp/.claude/loop/memory.md"
+  out="$(cmem "$(printf '{"cwd":"%s"}' "$tmp")")"
+  assert_empty "$out" "tagged raw-log entry: no block"
+  rm -rf "$tmp"
+}
+
 # ── gen_ci.sh: golden — detected stack facts -> pinned CI workflow ──
 gen_ci() { bash "$SCRIPTS/gen_ci.sh" "$@"; }
 
@@ -572,6 +641,7 @@ test_ci_watch() {
 test_verifier_guard
 test_decision_gate
 test_stop_gate
+test_check_memory
 test_budget
 test_gen_ci
 test_drive_next
