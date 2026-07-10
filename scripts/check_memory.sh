@@ -21,27 +21,16 @@
 
 set -u
 
-INPUT="$(cat 2>/dev/null || true)"
-
-# Hooks run in the project cwd; prefer the cwd field from the input if present.
-HOOK_CWD="$(printf '%s' "$INPUT" | sed -n 's/.*"cwd"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' | head -n1)"
-if [ -n "$HOOK_CWD" ] && [ -d "$HOOK_CWD" ]; then
-  cd "$HOOK_CWD" 2>/dev/null || true
-fi
-
-LOOP_DIR=".claude/loop"
-
-if [ "${LOOP_GUARD_DEBUG:-}" = "1" ] && [ -d "$LOOP_DIR" ]; then
-  printf '%s check_memory input=%s\n' "$(date +%s)" "$INPUT" >> "$LOOP_DIR/.hook-debug.log" 2>/dev/null || true
-fi
+# shellcheck source=scripts/hook_lib.sh
+. "$(cd "$(dirname "$0")" && pwd)/hook_lib.sh"
+hook_init
+hook_debug check_memory
 
 # --- not a loop project ---
 [ -d "$LOOP_DIR" ] || exit 0
 
 # --- already re-prompted once: never block again (avoid an infinite block loop) ---
-if printf '%s' "$INPUT" | grep -q '"stop_hook_active"[[:space:]]*:[[:space:]]*true'; then
-  exit 0
-fi
+stop_hook_active && exit 0
 
 STATE="$LOOP_DIR/state.md"
 MEMORY="$LOOP_DIR/memory.md"

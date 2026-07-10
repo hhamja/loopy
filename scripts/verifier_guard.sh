@@ -14,23 +14,16 @@
 
 set -u
 
-INPUT="$(cat 2>/dev/null || true)"
-
-# Debug observability: opt-in only (smoke checks depend on this log to tell
-# "field absent" apart from "value mismatch"). Default state writes nothing.
-if [ "${LOOP_GUARD_DEBUG:-}" = "1" ]; then
-  HOOK_CWD="$(printf '%s' "$INPUT" | sed -n 's/.*"cwd"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' | head -n1)"
-  DBG_DIR="${HOOK_CWD:-.}/.claude/loop"
-  if [ -d "$DBG_DIR" ]; then
-    printf '%s verifier_guard input=%s\n' "$(date +%s)" "$INPUT" >> "$DBG_DIR/.hook-debug.log" 2>/dev/null || true
-  fi
-fi
+# shellcheck source=scripts/hook_lib.sh
+. "$(cd "$(dirname "$0")" && pwd)/hook_lib.sh"
+hook_init
+hook_debug verifier_guard
 
 # --- scope: only the read-only checker agents are inspected ---
 if command -v jq >/dev/null 2>&1; then
   AGENT_TYPE="$(printf '%s' "$INPUT" | jq -r '.agent_type // empty' 2>/dev/null || true)"
 else
-  AGENT_TYPE="$(printf '%s' "$INPUT" | sed -n 's/.*"agent_type"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' | head -n1)"
+  AGENT_TYPE="$(json_str agent_type)"
 fi
 
 case "$AGENT_TYPE" in
@@ -39,19 +32,7 @@ case "$AGENT_TYPE" in
 esac
 
 # --- extract the Bash command (read-only checkers only from here on) ---
-if command -v jq >/dev/null 2>&1; then
-  CMD="$(printf '%s' "$INPUT" | jq -r '.tool_input.command // empty' 2>/dev/null || true)"
-elif command -v python3 >/dev/null 2>&1; then
-  CMD="$(printf '%s' "$INPUT" | python3 -c 'import json,sys
-try:
-    print(json.load(sys.stdin).get("tool_input", {}).get("command", ""))
-except Exception:
-    pass' 2>/dev/null || true)"
-else
-  # last-resort crude extraction; may truncate at escaped quotes, which only
-  # weakens detection for the verifier (never affects other agents)
-  CMD="$(printf '%s' "$INPUT" | sed -n 's/.*"command"[[:space:]]*:[[:space:]]*"\(.*\)".*/\1/p' | head -n1)"
-fi
+CMD="$(bash_cmd)"
 [ -n "$CMD" ] || exit 0
 
 deny() {

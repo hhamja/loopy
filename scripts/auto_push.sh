@@ -27,52 +27,28 @@
 
 set -u
 
-INPUT="$(cat 2>/dev/null || true)"
-
-# Hooks run in the project cwd; prefer the cwd field when present (mirrors stop_gate).
-HOOK_CWD="$(printf '%s' "$INPUT" | sed -n 's/.*"cwd"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' | head -n1)"
-if [ -n "$HOOK_CWD" ] && [ -d "$HOOK_CWD" ]; then
-  cd "$HOOK_CWD" 2>/dev/null || true
-fi
-
-LOOP_DIR=".claude/loop"
-
-if [ "${LOOP_GUARD_DEBUG:-}" = "1" ] && [ -d "$LOOP_DIR" ]; then
-  printf '%s auto_push input=%s\n' "$(date +%s)" "$INPUT" >> "$LOOP_DIR/.hook-debug.log" 2>/dev/null || true
-fi
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+# shellcheck source=scripts/hook_lib.sh
+. "$SCRIPT_DIR/hook_lib.sh"
+hook_init
+hook_debug auto_push
 
 # --- guard 1: not a loop project ---
 [ -d "$LOOP_DIR" ] || exit 0
 
 # --- guard 2: already re-prompted once (avoid pushing mid-block) ---
-if printf '%s' "$INPUT" | grep -q '"stop_hook_active"[[:space:]]*:[[:space:]]*true'; then
-  exit 0
-fi
+stop_hook_active && exit 0
 
 # --- session/loop gate (P1+P2): act only when THIS session actually ran a loop
 # here (same-session .run-marker) AND no different fresh session holds the worktree
 # lock. This is what stops a shared-working-tree session from auto-pushing another
 # session's changes. Logic + tests: scripts/loop_lock.sh. ---
-CUR_SID="$(printf '%s' "$INPUT" | sed -n 's/.*"session_id"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' | head -n1)"
-bash "$(cd "$(dirname "$0")" && pwd)/loop_lock.sh" gate "$CUR_SID" || exit 0
+bash "$SCRIPT_DIR/loop_lock.sh" gate "$(json_str session_id)" || exit 0
 
-# --- config (same parser as decision_gate.sh) ---
-CONFIG="$LOOP_DIR/loop.config.md"
-AUTO_PUSH="true"
-GATE_PUSH="false"
-PROTECTED="main master"
-if [ -f "$CONFIG" ]; then
-  a="$(sed -n 's/^auto_push:[[:space:]]*//p' "$CONFIG" | head -n1)"
-  case "$a" in false) AUTO_PUSH="false" ;; esac
-  g="$(sed -n 's/^gate_push:[[:space:]]*//p' "$CONFIG" | head -n1)"
-  case "$g" in true) GATE_PUSH="true" ;; esac
-  p="$(sed -n 's/^protected_branches:[[:space:]]*//p' "$CONFIG" | head -n1)"
-  case "$p" in ''|TODO*|'<'*) : ;; *) PROTECTED="$p" ;; esac
-fi
-
-# --- guard 3 & 4: disabled, or a direct-to-main repo where every push is a gate ---
-[ "$AUTO_PUSH" = "true" ] || exit 0
-[ "$GATE_PUSH" != "true" ] || exit 0
+# --- guard 3 & 4: disabled, or a direct-to-main repo where every push is a gate
+# (config accessors: hook_lib.sh — the same parse decision_gate enforces with) ---
+[ "$(cfg_flag auto_push true)" = "true" ] || exit 0
+[ "$(cfg_flag gate_push false)" != "true" ] || exit 0
 
 # --- guard 5: a git work tree with a checked-out branch (not detached) ---
 git rev-parse --is-inside-work-tree >/dev/null 2>&1 || exit 0
@@ -80,9 +56,7 @@ BRANCH="$(git symbolic-ref --short -q HEAD 2>/dev/null || true)"
 [ -n "$BRANCH" ] || exit 0   # detached HEAD -> never auto-push
 
 # --- guard 6: the current branch must not be protected ---
-PROT_RE="$(printf '%s' "$PROTECTED" | tr -s ' ' '|' | sed 's/^|//;s/|$//')"
-[ -n "$PROT_RE" ] || PROT_RE="main|master"
-if printf '%s' "$BRANCH" | grep -Eq "^(${PROT_RE})$"; then
+if printf '%s' "$BRANCH" | grep -Eq "^($(protected_re))$"; then
   exit 0
 fi
 

@@ -203,6 +203,9 @@ test_decision_gate() {
   out="$(dgate "$tmp" "rm -rf \$HOME")"
   assert_contains "$out" '"deny"' "whole home \$HOME: deny"
 
+  out="$(dgate "$tmp" "rm -fr /")"
+  assert_contains "$out" '"deny"' "catastrophic rm -fr (flag order swapped): deny"
+
   out="$(dgate "$tmp" "rm -rf ~/.claude/skills/x")"
   assert_empty "$out" "home subdir rm: allow (reversible T1, not catastrophic)"
 

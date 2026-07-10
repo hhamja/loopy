@@ -22,7 +22,8 @@
 
 set -u
 
-LOOP_DIR=".claude/loop"
+# shellcheck source=scripts/hook_lib.sh
+. "$(cd "$(dirname "$0")" && pwd)/hook_lib.sh"
 
 # --- fail-open guards ---
 [ -d "$LOOP_DIR" ] || { echo "SKIP: not a loop project"; exit 0; }
@@ -30,26 +31,15 @@ git rev-parse --is-inside-work-tree >/dev/null 2>&1 || { echo "SKIP: not a git w
 BRANCH="$(git symbolic-ref --short -q HEAD 2>/dev/null || true)"
 [ -n "$BRANCH" ] || { echo "SKIP: detached HEAD"; exit 0; }
 
-# --- config (same parser as auto_push.sh) ---
+# --- config (accessors: hook_lib.sh — the same parse the gate hooks use) ---
 CONFIG="$LOOP_DIR/loop.config.md"
-GATE_PUSH="false"
-PROTECTED="main master"
-WORKBRANCH=""
-if [ -f "$CONFIG" ]; then
-  g="$(sed -n 's/^gate_push:[[:space:]]*//p' "$CONFIG" | head -n1)"
-  case "$g" in true) GATE_PUSH="true" ;; esac
-  p="$(sed -n 's/^protected_branches:[[:space:]]*//p' "$CONFIG" | head -n1)"
-  case "$p" in ''|TODO*|'<'*) : ;; *) PROTECTED="$p" ;; esac
-  WORKBRANCH="$(sed -n 's/^branch:[[:space:]]*//p' "$CONFIG" | head -n1)"
-fi
+WORKBRANCH="$(config_field branch)"
 
 # --- direct-to-main repos gate every push; this guard stands down there ---
-[ "$GATE_PUSH" != "true" ] || { echo "SKIP: gate_push (direct-to-main)"; exit 0; }
+[ "$(cfg_flag gate_push false)" != "true" ] || { echo "SKIP: gate_push (direct-to-main)"; exit 0; }
 
 # --- already on a work branch? respect it, do nothing ---
-PROT_RE="$(printf '%s' "$PROTECTED" | tr -s ' ' '|' | sed 's/^|//;s/|$//')"
-[ -n "$PROT_RE" ] || PROT_RE="main|master"
-if ! printf '%s' "$BRANCH" | grep -Eq "^(${PROT_RE})$"; then
+if ! printf '%s' "$BRANCH" | grep -Eq "^($(protected_re))$"; then
   echo "OK: already on work branch $BRANCH"
   exit 0
 fi

@@ -22,28 +22,16 @@
 
 set -u
 
-INPUT="$(cat 2>/dev/null || true)"
-
-# Hooks normally run in the project cwd; prefer the cwd field from the input if present.
-HOOK_CWD="$(printf '%s' "$INPUT" | sed -n 's/.*"cwd"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' | head -n1)"
-if [ -n "$HOOK_CWD" ] && [ -d "$HOOK_CWD" ]; then
-  cd "$HOOK_CWD" 2>/dev/null || true
-fi
-
-LOOP_DIR=".claude/loop"
-
-# Debug observability: opt-in only. Default state writes nothing anywhere.
-if [ "${LOOP_GUARD_DEBUG:-}" = "1" ] && [ -d "$LOOP_DIR" ]; then
-  printf '%s stop_gate input=%s\n' "$(date +%s)" "$INPUT" >> "$LOOP_DIR/.hook-debug.log" 2>/dev/null || true
-fi
+# shellcheck source=scripts/hook_lib.sh
+. "$(cd "$(dirname "$0")" && pwd)/hook_lib.sh"
+hook_init
+hook_debug stop_gate
 
 # --- verdict 1: not a loop project ---
 [ -d "$LOOP_DIR" ] || exit 0
 
 # --- verdict 2: already re-prompted once ---
-if printf '%s' "$INPUT" | grep -q '"stop_hook_active"[[:space:]]*:[[:space:]]*true'; then
-  exit 0
-fi
+stop_hook_active && exit 0
 
 # --- verdict 3: same-session marker required (fail-open on every doubt) ---
 MARKER="$LOOP_DIR/.run-marker"
@@ -53,12 +41,12 @@ MARKER_SID="$(sed -n 's/^session_id=//p' "$MARKER" 2>/dev/null | head -n1)"
 [ -n "$MARKER_SID" ] || exit 0
 [ "$MARKER_SID" != "unknown" ] || exit 0
 
-CUR_SID="$(printf '%s' "$INPUT" | sed -n 's/.*"session_id"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' | head -n1)"
+CUR_SID="$(json_str session_id)"
 [ -n "$CUR_SID" ] || exit 0
 [ "$MARKER_SID" = "$CUR_SID" ] || exit 0
 
 # --- verdict 4 reached: record the run token estimate ---
-TRANSCRIPT="$(printf '%s' "$INPUT" | sed -n 's/.*"transcript_path"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' | head -n1)"
+TRANSCRIPT="$(json_str transcript_path)"
 if [ -n "$TRANSCRIPT" ] && [ -f "$TRANSCRIPT" ]; then
   BYTES="$(wc -c < "$TRANSCRIPT" 2>/dev/null | tr -d '[:space:]')"
   case "$BYTES" in ''|*[!0-9]*) BYTES=0 ;; esac
