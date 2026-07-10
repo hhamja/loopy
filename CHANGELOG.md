@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.14.0 — 2026-07-11
+
+- **`scripts/session_state_digest.sh` (new SessionStart hook): every `.claude/loop/state.md` is injected into session context at startup/resume/clear/compact.** Root cause it fixes: "read state.md before answering" was prompt guidance only, so interactive sessions kept trusting stale cross-session memory over fresh disk state (2026-07-10 incident: a session re-announced human gates that another session had already cleared and recorded in state.md). Injecting the disk state up front turns the discipline into a mechanism — stale memory can't win over what's already in context.
+  - Finds the root `state.md` plus nested ones (monorepo `apps/*/` layouts); `.git`, `node_modules`, and `*_template*` scaffolding are pruned. Root file matched exactly once (double-injection regression-locked in tests).
+  - Files are injected whole (state.md is already the ≤100-line digest the memory contract nudges) with `<!-- -->` comments stripped, so the template's REWRITE instruction never reaches context. Pure bash+awk, no new dependencies.
+  - Fail-open: not a loop project (no root `state.md`) -> silent exit 0, nothing injected. Never blocks a session. `hooks.json` gains the SessionStart entry (installed-version bump required — this release).
+
 ## 0.13.0 — 2026-07-10
 
 - **Auto commit/push in EVERY session — the shared-tree fix moves from gating WHO to scoping WHAT.** 0.12.0 stopped the `git add -A` entanglement by making `auto_commit`/`auto_push` stand down unless the session had run a loop (`.run-marker` P1) — which also meant interactive sessions got no turn-end automation at all. Now:
