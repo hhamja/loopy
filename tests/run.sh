@@ -638,6 +638,57 @@ test_ci_watch() {
   rm -rf "$tmp"
 }
 
+# ── branch_guard.sh: preflight guard — never work on a protected branch ──
+# A CLI tool (not a hook): runs in the cwd, no JSON stdin. DRYRUN prints
+# "WOULD: git checkout -b <b>" instead of switching branches.
+branchguard() { ( cd "$1" && LOOP_BRANCHGUARD_DRYRUN=1 bash "$SCRIPTS/branch_guard.sh" ); }
+
+test_branch_guard() {
+  printf '\nbranch_guard.sh\n'
+  local tmp out rc
+
+  # not a loop project -> skip
+  tmp="$(mktemp -d)"
+  out="$(branchguard "$tmp")"
+  assert_contains "$out" "SKIP: not a loop project" "no loop dir: skip"
+  rm -rf "$tmp"
+
+  # already on a work branch -> respect it, do nothing
+  tmp="$(mktemp -d)"; mk_repo "$tmp" "feature/x"
+  out="$(branchguard "$tmp/work")"
+  assert_contains "$out" "OK: already on work branch feature/x" "work branch: ok"
+  rm -rf "$tmp"
+
+  # gate_push:true (direct-to-main) -> stand down even on a protected branch
+  tmp="$(mktemp -d)"; mk_repo "$tmp" "main"
+  printf 'gate_push: true\nbranch: feat/x\n' > "$tmp/work/.claude/loop/loop.config.md"
+  out="$(branchguard "$tmp/work")"
+  assert_contains "$out" "SKIP: gate_push" "gate_push=true: skip"
+  rm -rf "$tmp"
+
+  # protected branch + branch: set -> would create the work branch
+  tmp="$(mktemp -d)"; mk_repo "$tmp" "main"
+  printf 'branch: feat/x\n' > "$tmp/work/.claude/loop/loop.config.md"
+  out="$(branchguard "$tmp/work")"
+  assert_contains "$out" "WOULD: git checkout -b feat/x" "protected + branch: would branch"
+  rm -rf "$tmp"
+
+  # protected branch + no branch: key -> NEED, exit 1 (the one hard stop)
+  tmp="$(mktemp -d)"; mk_repo "$tmp" "main"
+  out="$(cd "$tmp/work" && bash "$SCRIPTS/branch_guard.sh" 2>&1)"; rc=$?
+  assert_exit 1 "$rc" "protected + no branch: exit 1"
+  assert_contains "$out" "NEED:" "protected + no branch: NEED"
+  rm -rf "$tmp"
+
+  # real run: on main with branch: feat/x -> HEAD actually moves to feat/x
+  tmp="$(mktemp -d)"; mk_repo "$tmp" "main"
+  printf 'branch: feat/x\n' > "$tmp/work/.claude/loop/loop.config.md"
+  ( cd "$tmp/work" && bash "$SCRIPTS/branch_guard.sh" ) >/dev/null 2>&1
+  out="$(git -C "$tmp/work" symbolic-ref --short HEAD)"
+  assert_contains "$out" "feat/x" "real run: HEAD moved to feat/x"
+  rm -rf "$tmp"
+}
+
 test_verifier_guard
 test_decision_gate
 test_stop_gate
@@ -649,6 +700,7 @@ test_auto_push
 test_auto_commit
 test_auto_pr
 test_ci_watch
+test_branch_guard
 
 printf '\n%s passed, %s failed\n' "$pass" "$fail"
 [ "$fail" -eq 0 ]
