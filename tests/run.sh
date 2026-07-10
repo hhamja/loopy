@@ -60,6 +60,18 @@ test_verifier_guard() {
   out="$(guard '{"agent_type":"verifier","tool_input":{"command":"echo hi > out.txt"}}')"
   assert_contains "$out" '"deny"' "verifier redirect to file: deny"
 
+  out="$(guard '{"agent_type":"verifier","tool_input":{"command":"echo '\''hi'\'' > out.txt"}}')"
+  assert_contains "$out" '"deny"' "verifier redirect after quoted arg: still deny"
+
+  out="$(guard '{"agent_type":"verifier","tool_input":{"command":"grep -rn '\''foo->bar'\'' src"}}')"
+  assert_empty "$out" "verifier grep arrow in quotes: allow (> is data, not a redirect)"
+
+  out="$(guard '{"agent_type":"verifier","tool_input":{"command":"grep -E '\''x => y'\'' f"}}')"
+  assert_empty "$out" "verifier grep fat-arrow in quotes: allow"
+
+  out="$(guard '{"agent_type":"verifier","tool_input":{"command":"awk '\''{if ($1 > 5) print}'\'' f"}}')"
+  assert_empty "$out" "verifier awk > compare in quotes: allow"
+
   out="$(guard '{"agent_type":"verifier","tool_input":{"command":"pnpm test 2>&1"}}')"
   assert_empty "$out" "verifier test 2>&1: allow (idiom)"
 

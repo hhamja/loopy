@@ -79,9 +79,12 @@ if printf '%s' "$CMD" | grep -Eq "${SEG}(npm|pnpm|yarn)[[:space:]]+publish"; the
   deny "package publish"
 fi
 
-# Redirects: strip the allowed idioms first (2>&1, >&2, [n]>/dev/null, &>/dev/null),
-# then any remaining > means a redirect to a file path -> deny.
-STRIPPED="$(printf '%s' "$CMD" | sed -E 's/[0-9]?>&[0-9]//g; s/&>[[:space:]]*\/dev\/null//g; s/[0-9]?>>?[[:space:]]*\/dev\/null//g')"
+# Redirects: a real redirect operator is never inside quotes, so drop quoted
+# spans first — a `>` inside them is data (a grep pattern like `=>`/`->`, an awk
+# `>` compare), not a redirect, and read-only checkers grep such source all the
+# time. Then strip the allowed idioms (2>&1, >&2, [n]>/dev/null, &>/dev/null).
+# Any remaining `>` is a redirect to a file path -> deny.
+STRIPPED="$(printf '%s' "$CMD" | sed -E "s/'[^']*'//g; s/\"[^\"]*\"//g; s/[0-9]?>&[0-9]//g; s/&>[[:space:]]*\/dev\/null//g; s/[0-9]?>>?[[:space:]]*\/dev\/null//g")"
 if printf '%s' "$STRIPPED" | grep -q '>'; then
   deny "file redirect"
 fi
