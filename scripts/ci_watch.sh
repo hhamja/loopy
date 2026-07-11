@@ -22,7 +22,7 @@ set -u
 TIMEOUT="${1:-300}"
 case "$TIMEOUT" in ''|*[!0-9]*) TIMEOUT=300 ;; esac
 
-now() { date +%s 2>/dev/null || echo 0; }
+now() { date +%s; }
 
 # --- local guards (fail-open with a reason) ---
 [ -d ".claude/loop" ] || { echo "SKIP: not a loop project"; exit 0; }

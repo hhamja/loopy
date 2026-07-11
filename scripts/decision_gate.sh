@@ -56,9 +56,7 @@ PROT_RE="$(protected_re)"
 approved() {
   mk="$LOOP_DIR/.gate-approved"
   [ -f "$mk" ] || return 1
-  a="$(sed -n 's/^action=//p' "$mk" | head -n1)"
-  s="$(sed -n 's/^session_id=//p' "$mk" | head -n1)"
-  t="$(sed -n 's/^ts=//p' "$mk" | head -n1)"
+  a="$(field "$mk" action)"; s="$(field "$mk" session_id)"; t="$(field "$mk" ts)"
   case "$a" in "$1"|any) : ;; *) return 1 ;; esac
   # session must match when both sides are known
   if [ -n "$CUR_SID" ] && [ "$CUR_SID" != "unknown" ] && [ -n "$s" ] && [ "$s" != "$CUR_SID" ]; then
@@ -67,7 +65,9 @@ approved() {
   # freshness (15 min); missing/garbage ts -> treat as expired
   case "$t" in ''|*[!0-9]*) return 1 ;; esac
   now="$(date +%s 2>/dev/null || echo 0)"
-  [ "$now" -gt 0 ] || return 1   # no clock -> cannot verify freshness -> fail closed
+  # a zeroed/broken clock makes now-ts hugely negative and an expired marker
+  # eternally "fresh" -> fail closed (golden test pins this)
+  [ "$now" -gt 0 ] || return 1
   [ $((now - t)) -le 900 ] || return 1
   return 0
 }

@@ -88,7 +88,7 @@ OUT="$(gh "$@" 2>&1)"; RC=$?
   printf 'branch=%s\n' "$BRANCH"
   printf 'cmd=gh %s\n' "$*"
   printf 'exit=%s\n' "$RC"
-  printf 'created_epoch=%s\n' "$(date +%s 2>/dev/null || echo 0)"
+  printf 'created_epoch=%s\n' "$(date +%s)"
   printf 'result=%s\n' "$(printf '%s' "$OUT" | tr '\n' ' ' | cut -c1-300)"
 } > "$LOOP_DIR/.last-pr" 2>/dev/null || true
 

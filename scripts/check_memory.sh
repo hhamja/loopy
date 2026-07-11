@@ -49,22 +49,15 @@ fi
 
 # --- memory.md: mandatory [plugin]/[project] tags on entries and rules ---
 if [ -f "$MEMORY" ]; then
-  # Distilled rules: "- " bullets between "## Distilled rules" and the next "## " header.
-  # Placeholders like "(none yet)" are not "- " bullets, so they are not flagged.
-  untagged_rule="$(awk '
-    /^## Distilled rules/ {sec=1; next}
-    /^## / {sec=0}
-    sec && /^- / && !/\[plugin\]/ && !/\[project\]/ {print NR; exit}
-  ' "$MEMORY")"
-  [ -n "$untagged_rule" ] && add_v "memory.md Distilled rule on line $untagged_rule missing [plugin]/[project] tag"
-
-  # Raw log: "### " entry headings after "## Raw log".
-  untagged_entry="$(awk '
-    /^## Raw log/ {sec=1; next}
-    /^## / {sec=0}
-    sec && /^### / && !/\[plugin\]/ && !/\[project\]/ {print NR; exit}
-  ' "$MEMORY")"
-  [ -n "$untagged_entry" ] && add_v "memory.md Raw log entry on line $untagged_entry missing [plugin]/[project] tag"
+  # untagged <section-header-re> <line-re> — line number of the first untagged match
+  # under that "## " section. Placeholders like "(none yet)" match neither line-re.
+  untagged() {
+    awk -v h="^## $1" -v p="$2" '$0~h{s=1;next} /^## /{s=0} s && $0~p && !/\[(plugin|project)\]/{print NR; exit}' "$MEMORY"
+  }
+  n="$(untagged 'Distilled rules' '^- ')"
+  [ -n "$n" ] && add_v "memory.md Distilled rule on line $n missing [plugin]/[project] tag"
+  n="$(untagged 'Raw log' '^### ')"
+  [ -n "$n" ] && add_v "memory.md Raw log entry on line $n missing [plugin]/[project] tag"
 
   raw_lines="$(awk '/^## Raw log/{s=1;next} /^## /{s=0} s{c++} END{print c+0}' "$MEMORY")"
   [ "$raw_lines" -gt 200 ] && printf 'check_memory: warn: memory.md Raw log is %s lines (compress at 200)\n' "$raw_lines" >&2

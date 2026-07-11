@@ -82,7 +82,7 @@ fi
 # turn end — that is the point; upgrade path is a per-project verify_cmd key.
 if [ -x scripts/ci_local.sh ] && ! bash scripts/ci_local.sh >/dev/null 2>&1; then
   { printf 'branch=%s\ncmd=(skipped: ci_local.sh red)\nexit=1\nupdated_epoch=%s\n' \
-      "$BRANCH" "$(date +%s 2>/dev/null || echo 0)"; } > "$LOOP_DIR/.last-push" 2>/dev/null || true
+      "$BRANCH" "$(date +%s)"; } > "$LOOP_DIR/.last-push" 2>/dev/null || true
   exit 0
 fi
 
@@ -98,7 +98,7 @@ ERR="$(git "$@" 2>&1)"; RC=$?
   printf 'branch=%s\n' "$BRANCH"
   printf 'cmd=git %s\n' "$*"
   printf 'exit=%s\n' "$RC"
-  printf 'updated_epoch=%s\n' "$(date +%s 2>/dev/null || echo 0)"
+  printf 'updated_epoch=%s\n' "$(date +%s)"
   [ "$RC" -eq 0 ] || printf 'error=%s\n' "$(printf '%s' "$ERR" | tr '\n' ' ' | cut -c1-300)"
 } > "$LOOP_DIR/.last-push" 2>/dev/null || true
 

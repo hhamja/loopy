@@ -90,6 +90,11 @@ sid_safe() {
   printf '%s' "${s:-unknown}"
 }
 
+# field <file> <key> — value of `key=...` (first match), empty if absent.
+# The marker/lock/log files (.gate-approved, .run-marker, .last-usage) all use
+# this key=value format; loop_lock.sh keeps its own copy (deliberately standalone).
+field() { sed -n "s/^$2=//p" "$1" 2>/dev/null | head -n1; }
+
 # config_field <key> — first `key: value` line from loop.config.md, raw
 # (empty when the file or key is absent). Callers own default/TODO handling.
 config_field() {

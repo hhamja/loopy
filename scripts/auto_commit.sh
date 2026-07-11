@@ -94,13 +94,15 @@ if [ "$CONTENDED" -eq 1 ] && [ -z "$WORKER" ]; then
   [ -s "$MANIFEST" ] || exit 0   # nothing of mine recorded -> stand down
   TOP="$(git rev-parse --show-toplevel 2>/dev/null)" || exit 0
   REL="$(sed "s|^$TOP/||" "$MANIFEST" | sort -u)"
-  SCOPED=""
+  SCOPED=""; PATHS=""
   while IFS= read -r line; do
     [ -n "$line" ] || continue
     p="${line:3}"; p="${p##* -> }"
     case "$p" in \"*\") p="${p#\"}"; p="${p%\"}" ;; esac
     if printf '%s\n' "$REL" | grep -Fxq -- "$p"; then
       SCOPED="${SCOPED}${line}
+"
+      PATHS="${PATHS}${p}
 "
     fi
   done <<< "$STATUS"
@@ -126,12 +128,7 @@ if [ -n "$WORKER" ]; then
 elif [ "$CONTENDED" -eq 1 ]; then
   # a peer session is live in this tree: stage exactly the scoped paths, never -A
   # (-C "$TOP": porcelain paths are toplevel-relative; the hook cwd may be a subdir)
-  while IFS= read -r line; do
-    [ -n "$line" ] || continue
-    p="${line:3}"; p="${p##* -> }"
-    case "$p" in \"*\") p="${p#\"}"; p="${p%\"}" ;; esac
-    git -C "$TOP" add -A -- "$p" >/dev/null 2>&1
-  done <<< "$STATUS"
+  printf '%s' "$PATHS" | git -C "$TOP" add -A --pathspec-from-file=- >/dev/null 2>&1
 else
   git add -A >/dev/null 2>&1
 fi
@@ -141,7 +138,7 @@ ERR="$(git commit -m "$MSG" 2>&1)"; RC=$?
   printf 'branch=%s\n' "$BRANCH"
   printf 'files=%s\n' "$N"
   printf 'exit=%s\n' "$RC"
-  printf 'committed_epoch=%s\n' "$(date +%s 2>/dev/null || echo 0)"
+  printf 'committed_epoch=%s\n' "$(date +%s)"
   [ "$RC" -eq 0 ] || printf 'error=%s\n' "$(printf '%s' "$ERR" | tr '\n' ' ' | cut -c1-300)"
 } > "$LOOP_DIR/.last-commit" 2>/dev/null || true
 

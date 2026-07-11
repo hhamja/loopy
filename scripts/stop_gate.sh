@@ -37,7 +37,7 @@ stop_hook_active && exit 0
 MARKER="$LOOP_DIR/.run-marker"
 [ -f "$MARKER" ] || exit 0
 
-MARKER_SID="$(sed -n 's/^session_id=//p' "$MARKER" 2>/dev/null | head -n1)"
+MARKER_SID="$(field "$MARKER" session_id)"
 [ -n "$MARKER_SID" ] || exit 0
 [ "$MARKER_SID" != "unknown" ] || exit 0
 
@@ -51,7 +51,7 @@ if [ -n "$TRANSCRIPT" ] && [ -f "$TRANSCRIPT" ]; then
   BYTES="$(wc -c < "$TRANSCRIPT" 2>/dev/null | tr -d '[:space:]')"
   case "$BYTES" in ''|*[!0-9]*) BYTES=0 ;; esac
   EST=$((BYTES / 4))
-  PREV="$(sed -n 's/^cumulative_est_tokens=//p' "$LOOP_DIR/.last-usage" 2>/dev/null | head -n1)"
+  PREV="$(field "$LOOP_DIR/.last-usage" cumulative_est_tokens)"
   case "$PREV" in ''|*[!0-9]*) PREV=0 ;; esac
   {
     printf '# run token estimate = transcript bytes / 4 (rough heuristic, not billing data)\n'
