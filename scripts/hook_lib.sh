@@ -8,11 +8,18 @@
 # Behavior contract: identical to the blocks it replaced; tests/run.sh
 # exercises every caller against fixed inputs.
 
-LOOP_DIR=".claude/loop"
+SCRIPT_DIR_FOR_HOOK_LIB="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck source=scripts/core_lib.sh
+. "$SCRIPT_DIR_FOR_HOOK_LIB/core_lib.sh"
 
 # json_str <key> — first top-level string field from INPUT (crude sed; fine
 # for the machine-written cwd/session_id/transcript_path fields).
 json_str() {
+  case "$1" in
+    session_id) [ "${LOOPY_SESSION_ID+x}" = x ] && { printf '%s' "$LOOPY_SESSION_ID"; return 0; } ;;
+    transcript_path) [ "${LOOPY_TRANSCRIPT+x}" = x ] && { printf '%s' "$LOOPY_TRANSCRIPT"; return 0; } ;;
+    transcript) [ "${LOOPY_TRANSCRIPT+x}" = x ] && { printf '%s' "$LOOPY_TRANSCRIPT"; return 0; } ;;
+  esac
   printf '%s' "$INPUT" | sed -n "s/.*\"$1\"[[:space:]]*:[[:space:]]*\"\([^\"]*\)\".*/\1/p" | head -n1
 }
 
@@ -29,6 +36,10 @@ hook_init() {
 # stop_hook_active — true when this Stop event is already a re-prompt
 # (callers exit 0 to avoid an infinite block loop / acting mid-block).
 stop_hook_active() {
+  [ "${LOOPY_STOP_HOOK_ACTIVE+x}" = x ] && {
+    [ "$LOOPY_STOP_HOOK_ACTIVE" = "true" ] || [ "$LOOPY_STOP_HOOK_ACTIVE" = "1" ]
+    return
+  }
   printf '%s' "$INPUT" | grep -q '"stop_hook_active"[[:space:]]*:[[:space:]]*true'
 }
 
@@ -45,6 +56,7 @@ hook_debug() {
 # callers fail open, so a weaker parse only weakens detection, never blocks
 # wrongly).
 bash_cmd() {
+  [ "${LOOPY_TOOL_CMD+x}" = x ] && { printf '%s' "$LOOPY_TOOL_CMD"; return 0; }
   if command -v jq >/dev/null 2>&1; then
     printf '%s' "$INPUT" | jq -r '.tool_input.command // empty' 2>/dev/null || true
   elif command -v python3 >/dev/null 2>&1; then
@@ -74,45 +86,4 @@ except Exception:
   else
     printf '%s' "$INPUT" | sed -n "s/.*\"$1\"[[:space:]]*:[[:space:]]*\"\([^\"]*\)\".*/\1/p" | head -n1
   fi
-}
-
-# sid_safe <sid> — session id reduced to filename-safe chars (it names the
-# per-session .touched-<sid> manifest); empty in -> "unknown" out. When the
-# filter dropped characters, two DISTINCT sids could collapse to one name
-# ("a/b" and "ab") — that collision would merge two sessions' manifests and
-# defeat the peer detection, so a checksum of the raw sid disambiguates.
-sid_safe() {
-  local raw="${1:-}" s
-  s="$(printf '%s' "$raw" | tr -cd 'A-Za-z0-9._-')"
-  if [ -n "$raw" ] && [ "$s" != "$raw" ]; then
-    s="${s}-$(printf '%s' "$raw" | cksum | cut -d' ' -f1)"
-  fi
-  printf '%s' "${s:-unknown}"
-}
-
-# config_field <key> — first `key: value` line from loop.config.md, raw
-# (empty when the file or key is absent). Callers own default/TODO handling.
-config_field() {
-  sed -n "s/^$1:[[:space:]]*//p" "$LOOP_DIR/loop.config.md" 2>/dev/null | head -n1
-}
-
-# cfg_flag <key> <default> — boolean key; only the literal opposite of the
-# default flips it (any other value, TODO, or absence keeps the default).
-cfg_flag() {
-  case "$2:$(config_field "$1")" in
-    true:false) printf 'false' ;;
-    false:true) printf 'true' ;;
-    *)          printf '%s' "$2" ;;
-  esac
-}
-
-# protected_re — validated protected_branches (default "main master") as an
-# ERE alternation, e.g. "main|master".
-protected_re() {
-  local p re
-  p="$(config_field protected_branches)"
-  case "$p" in ''|TODO*|'<'*) p="main master" ;; esac
-  re="$(printf '%s' "$p" | tr -s ' ' '|' | sed 's/^|//;s/|$//')"
-  [ -n "$re" ] || re="main|master"
-  printf '%s' "$re"
 }

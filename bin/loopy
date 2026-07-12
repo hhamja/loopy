@@ -1,0 +1,242 @@
+#!/usr/bin/env bash
+set -u
+
+BIN_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+ROOT="$(cd "$BIN_DIR/.." && pwd)"
+
+usage() {
+  cat <<'EOF'
+loopy subcommands:
+  help
+  gate-check --cmd "<command>" [--session ID]
+  stop-check [--session ID] [--transcript PATH]
+  init
+  verify
+  commit
+  push
+  pr
+EOF
+}
+
+load_gate() {
+  # shellcheck disable=SC2034  # read by decision_gate.sh after sourcing (cross-file)
+  LOOPY_SOURCE_ONLY=1
+  # shellcheck source=scripts/decision_gate.sh
+  . "$ROOT/scripts/decision_gate.sh"
+}
+
+load_stop() {
+  # shellcheck disable=SC2034  # read by stop_gate.sh after sourcing (cross-file)
+  LOOPY_SOURCE_ONLY=1
+  # shellcheck source=scripts/stop_gate.sh
+  . "$ROOT/scripts/stop_gate.sh"
+}
+
+cmd_gate_check() {
+  local cmd="" session="" verdict rc cls tag
+  while [ "$#" -gt 0 ]; do
+    case "$1" in
+      --cmd) shift; cmd="${1:-}" ;;
+      --session) shift; session="${1:-}" ;;
+      *) printf 'unknown gate-check arg: %s\n' "$1" >&2; return 1 ;;
+    esac
+    shift || true
+  done
+  [ -n "$cmd" ] || { printf 'gate-check requires --cmd\n' >&2; return 1; }
+  load_gate
+  verdict="$(decision_gate_core "$cmd" "$session")"; rc=$?
+  if [ "$rc" -eq 2 ]; then
+    cls="${verdict%%	*}"
+    tag="${verdict#*	}"
+    printf 'loopy decision_gate: T2 action blocked (%s, action=%s)\n' "$tag" "$cls" >&2
+    return 2
+  fi
+  return 0
+}
+
+cmd_stop_check() {
+  local session="" transcript="" reason rc
+  while [ "$#" -gt 0 ]; do
+    case "$1" in
+      --session) shift; session="${1:-}" ;;
+      --transcript) shift; transcript="${1:-}" ;;
+      *) printf 'unknown stop-check arg: %s\n' "$1" >&2; return 1 ;;
+    esac
+    shift || true
+  done
+  load_stop
+  reason="$(stop_gate_core "$session" "$transcript" false)"; rc=$?
+  if [ "$rc" -eq 2 ]; then
+    printf '%s\n' "$reason" >&2
+    return 2
+  fi
+  return 0
+}
+
+detect_pm() {
+  if [ -f pnpm-lock.yaml ]; then printf 'pnpm'
+  elif [ -f yarn.lock ]; then printf 'yarn'
+  elif [ -f bun.lockb ] || [ -f bun.lock ]; then printf 'bun'
+  else printf 'npm'
+  fi
+}
+
+pkg_script() {
+  local name="$1" pm
+  [ -f package.json ] || return 1
+  pm="$(detect_pm)"
+  if command -v python3 >/dev/null 2>&1 && python3 -c 'import json,sys
+d=json.load(open("package.json"))
+sys.exit(0 if sys.argv[1] in d.get("scripts", {}) else 1)' "$name" >/dev/null 2>&1
+  then
+    printf '%s run %s' "$pm" "$name"
+    return 0
+  fi
+  return 1
+}
+
+slugify() {
+  printf '%s' "$1" | tr '[:upper:]' '[:lower:]' | sed 's/[^a-z0-9][^a-z0-9]*/-/g; s/^-//; s/-$//; s/^\(........................................\).*/\1/'
+}
+
+branch_for_goal() {
+  local goal="$1" typ="feat" slug
+  case "$(printf '%s' "$goal" | tr '[:upper:]' '[:lower:]')" in
+    *fix*|*bug*|*버그*) typ="fix" ;;
+    *refactor*) typ="refactor" ;;
+    *doc*) typ="docs" ;;
+    *test*) typ="test" ;;
+  esac
+  slug="$(slugify "$goal")"
+  [ -n "$slug" ] || slug="loop-work"
+  printf '%s/%s' "$typ" "$slug"
+}
+
+cmd_init() {
+  local goal="${*:-TODO: define the goal}" test_cmd lint_cmd build_cmd implementer branch
+  if [ -d .claude/loop ]; then
+    printf '.claude/loop already exists\n'
+    find .claude/loop -maxdepth 1 -type f -print 2>/dev/null | sort
+    return 0
+  fi
+  mkdir -p .claude/loop
+
+  test_cmd="$(pkg_script test || true)"; [ -n "$test_cmd" ] || test_cmd="TODO: fill in manually"
+  lint_cmd="$(pkg_script lint || true)"; [ -n "$lint_cmd" ] || lint_cmd="TODO: fill in manually"
+  build_cmd="$(pkg_script build || true)"; [ -n "$build_cmd" ] || build_cmd="TODO: fill in manually"
+  if command -v codex >/dev/null 2>&1 && codex --version >/dev/null 2>&1; then implementer=codex; else implementer=claude; fi
+  case "$goal" in TODO:*) branch="TODO: $(branch_for_goal "$goal")" ;; *) branch="$(branch_for_goal "$goal")" ;; esac
+
+  cat > .claude/loop/goal.md <<EOF
+# Goal
+
+$goal
+
+## Stop condition
+The loop stops when every criterion in rubric.md passes.
+Criteria must be machine-checkable; subjective wording is forbidden.
+EOF
+  cat > .claude/loop/rubric.md <<'EOF'
+# Rubric
+
+- [ ] R1: TODO: define a machine-checkable criterion — verify: `TODO: command` (expect: observable result)
+EOF
+  cat > .claude/loop/state.md <<'EOF'
+# Loop State
+
+loop_active: false
+human_gate: none
+iteration: 0
+last_run_tokens_est: n/a
+
+## Attempted
+(nothing yet)
+
+## Passed
+(nothing yet)
+
+## Unresolved
+(nothing yet)
+
+## Approaches tried (rejected)
+(nothing yet)
+EOF
+  cat > .claude/loop/memory.md <<'EOF'
+# Loop Memory
+
+## Distilled rules (consult before every cycle)
+(none yet)
+
+## Raw log
+(compress when this section exceeds 200 lines)
+EOF
+  cat > .claude/loop/review.md <<'EOF'
+# Cycle Review (for humans)
+
+- Files changed:
+- Key changes:
+- Risks / needs human eyes:
+EOF
+  cat > .claude/loop/loop.config.md <<EOF
+# Loop Config
+
+test: $test_cmd
+lint: $lint_cmd
+build: $build_cmd
+
+implementer: $implementer
+codex_args:
+max_iterations: 10
+replan_max: 2
+escalation: after 3 consecutive failures of the same criterion, replan up to replan_max times, then present 2-3 options
+
+branch: $branch
+protected_branches: main master
+gate_push: false
+auto_commit: true
+auto_push: true
+auto_pr: true
+pr_draft: false
+extra_gates:
+EOF
+
+  touch .gitignore
+  grep -Fxq '.claude/loop/.*' .gitignore || printf '%s\n' '.claude/loop/.*' >> .gitignore
+  printf 'created .claude/loop\n'
+  grep -R 'TODO:' .claude/loop 2>/dev/null | sed 's/^/warning: /' || true
+}
+
+cmd_verify() {
+  local rubric=".claude/loop/rubric.md" fail=0 line cmd
+  [ -f "$rubric" ] || { printf 'missing %s\n' "$rubric" >&2; return 1; }
+  while IFS= read -r line; do
+    case "$line" in *verify:*)
+      cmd="${line#*verify:}"
+      case "$cmd" in *'`'*) cmd="${cmd#*\`}"; cmd="${cmd%%\`*}" ;; *) cmd="${cmd%%(expect:*}"; cmd="${cmd%% expect:*}" ;; esac
+      cmd="$(printf '%s' "$cmd" | sed 's/^[[:space:]]*//; s/[[:space:]]*$//')"
+      [ -n "$cmd" ] || continue
+      printf 'verify: %s\n' "$cmd"
+      bash -lc "$cmd" || fail=1
+      ;;
+    esac
+  done < "$rubric"
+  [ "$fail" -eq 0 ]
+}
+
+run_hook_script() {
+  local script="$1" cwd
+  cwd="$(pwd)"
+  printf '{"cwd":"%s","session_id":"loopy-cli"}' "$cwd" | bash "$ROOT/scripts/$script"
+}
+
+case "${1:-help}" in
+  help|-h|--help) usage ;;
+  gate-check) shift; cmd_gate_check "$@" ;;
+  stop-check) shift; cmd_stop_check "$@" ;;
+  init) shift; cmd_init "$@" ;;
+  verify) shift; cmd_verify "$@" ;;
+  commit) shift; run_hook_script auto_commit.sh "$@" ;;
+  push) shift; run_hook_script auto_push.sh "$@" ;;
+  pr) shift; run_hook_script auto_pr.sh "$@" ;;
+  *) usage >&2; exit 1 ;;
+esac

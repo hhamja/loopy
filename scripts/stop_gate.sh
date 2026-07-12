@@ -23,55 +23,76 @@
 set -u
 
 # shellcheck source=scripts/hook_lib.sh
-. "$(cd "$(dirname "$0")" && pwd)/hook_lib.sh"
-hook_init
-hook_debug stop_gate
+. "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/hook_lib.sh"
 
-# --- verdict 1: not a loop project ---
-[ -d "$LOOP_DIR" ] || exit 0
+stop_gate_core() {
+  local CUR_SID="${1:-}" TRANSCRIPT="${2:-}" STOP_ACTIVE="${3:-}" MARKER MARKER_SID BYTES EST PREV STATE
 
-# --- verdict 2: already re-prompted once ---
-stop_hook_active && exit 0
+  # --- verdict 1: not a loop project ---
+  [ -d "$LOOP_DIR" ] || return 0
 
-# --- verdict 3: same-session marker required (fail-open on every doubt) ---
-MARKER="$LOOP_DIR/.run-marker"
-[ -f "$MARKER" ] || exit 0
+  # --- verdict 2: already re-prompted once ---
+  [ "$STOP_ACTIVE" = "true" ] && return 0
 
-MARKER_SID="$(sed -n 's/^session_id=//p' "$MARKER" 2>/dev/null | head -n1)"
-[ -n "$MARKER_SID" ] || exit 0
-[ "$MARKER_SID" != "unknown" ] || exit 0
+  # --- verdict 3: same-session marker required (fail-open on every doubt) ---
+  MARKER="$LOOP_DIR/.run-marker"
+  [ -f "$MARKER" ] || return 0
 
-CUR_SID="$(json_str session_id)"
-[ -n "$CUR_SID" ] || exit 0
-[ "$MARKER_SID" = "$CUR_SID" ] || exit 0
+  MARKER_SID="$(sed -n 's/^session_id=//p' "$MARKER" 2>/dev/null | head -n1)"
+  [ -n "$MARKER_SID" ] || return 0
+  [ "$MARKER_SID" != "unknown" ] || return 0
 
-# --- verdict 4 reached: record the run token estimate ---
-TRANSCRIPT="$(json_str transcript_path)"
-if [ -n "$TRANSCRIPT" ] && [ -f "$TRANSCRIPT" ]; then
-  BYTES="$(wc -c < "$TRANSCRIPT" 2>/dev/null | tr -d '[:space:]')"
-  case "$BYTES" in ''|*[!0-9]*) BYTES=0 ;; esac
-  EST=$((BYTES / 4))
-  PREV="$(sed -n 's/^cumulative_est_tokens=//p' "$LOOP_DIR/.last-usage" 2>/dev/null | head -n1)"
-  case "$PREV" in ''|*[!0-9]*) PREV=0 ;; esac
-  {
-    printf '# run token estimate = transcript bytes / 4 (rough heuristic, not billing data)\n'
-    printf '# delta may include non-loop turns from this session (accepted limitation)\n'
-    printf 'cumulative_est_tokens=%s\n' "$EST"
-    printf 'delta_est_tokens=%s\n' "$((EST - PREV))"
-    printf 'updated_epoch=%s\n' "$(date +%s)"
-  } > "$LOOP_DIR/.last-usage" 2>/dev/null || true
-fi
+  [ -n "$CUR_SID" ] || return 0
+  [ "$MARKER_SID" = "$CUR_SID" ] || return 0
 
-# --- verdict 4: block only if state.md is stale relative to the marker ---
-STATE="$LOOP_DIR/state.md"
-[ -f "$STATE" ] || exit 0   # fail-open: nothing to compare against
+  # --- verdict 4 reached: record the run token estimate ---
+  if [ -n "$TRANSCRIPT" ] && [ -f "$TRANSCRIPT" ]; then
+    BYTES="$(wc -c < "$TRANSCRIPT" 2>/dev/null | tr -d '[:space:]')"
+    case "$BYTES" in ''|*[!0-9]*) BYTES=0 ;; esac
+    EST=$((BYTES / 4))
+    PREV="$(sed -n 's/^cumulative_est_tokens=//p' "$LOOP_DIR/.last-usage" 2>/dev/null | head -n1)"
+    case "$PREV" in ''|*[!0-9]*) PREV=0 ;; esac
+    {
+      printf '# run token estimate = transcript bytes / 4 (rough heuristic, not billing data)\n'
+      printf '# delta may include non-loop turns from this session (accepted limitation)\n'
+      printf 'cumulative_est_tokens=%s\n' "$EST"
+      printf 'delta_est_tokens=%s\n' "$((EST - PREV))"
+      printf 'updated_epoch=%s\n' "$(date +%s)"
+    } > "$LOOP_DIR/.last-usage" 2>/dev/null || true
+  fi
 
-# [ A -ot B ] avoids the stat -f/-c macOS/Linux portability split entirely.
-if [ "$STATE" -ot "$MARKER" ]; then
+  # --- verdict 4: block only if state.md is stale relative to the marker ---
+  STATE="$LOOP_DIR/state.md"
+  [ -f "$STATE" ] || return 0   # fail-open: nothing to compare against
+
+  # [ A -ot B ] avoids the stat -f/-c macOS/Linux portability split entirely.
+  if [ "$STATE" -ot "$MARKER" ]; then
+    printf '%s\n' "state.md not updated this run. If this turn was loop work: update state.md (attempted / passed / unresolved). If this turn was unrelated to the loop: append exactly one line 'loop interrupted (previous run did not update state)' to state.md, then finish."
+    return 2
+  fi
+
+  return 0
+}
+
+stop_gate_block_json() {
   cat <<'JSON'
 {"decision":"block","reason":"state.md not updated this run. If this turn was loop work: update state.md (attempted / passed / unresolved). If this turn was unrelated to the loop: append exactly one line 'loop interrupted (previous run did not update state)' to state.md, then finish."}
 JSON
-  exit 0
-fi
+}
 
-exit 0
+stop_gate_main() {
+  local active=false rc
+  hook_init
+  hook_debug stop_gate
+  if stop_hook_active; then active=true; fi
+  # core's stdout reason is for the CLI adapter; the CC path emits fixed block JSON
+  stop_gate_core "$(json_str session_id)" "$(json_str transcript_path)" "$active" >/dev/null; rc=$?
+  if [ "$rc" -eq 2 ]; then
+    stop_gate_block_json
+  fi
+  exit 0
+}
+
+if [ "${LOOPY_SOURCE_ONLY:-}" != "1" ]; then
+  stop_gate_main "$@"
+fi
