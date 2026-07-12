@@ -34,26 +34,10 @@
 set -u
 
 # shellcheck source=scripts/hook_lib.sh
-. "$(cd "$(dirname "$0")" && pwd)/hook_lib.sh"
-hook_init
+. "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/hook_lib.sh"
 
-hook_debug decision_gate
-
-CMD="$(bash_cmd)"
-[ -n "$CMD" ] || exit 0
-
-CUR_SID="$(json_str session_id)"
-
-# --- config (the only stack-dependent knobs; accessors: hook_lib.sh) ---
-GATE_PUSH="$(cfg_flag gate_push false)"
-EXTRA_GATES="$(config_field extra_gates)"
-case "$EXTRA_GATES" in TODO*|'<'*) EXTRA_GATES="" ;; esac
-PROT_RE="$(protected_re)"
-
-# --- one-shot human-approval marker ---
-# approved <class>: true if .gate-approved authorizes this class (or "any") for this
-# session within the TTL. Fail-closed on any parse doubt (return 1 -> still gated).
-approved() {
+decision_gate_approved() {
+  local mk a s t now
   mk="$LOOP_DIR/.gate-approved"
   [ -f "$mk" ] || return 1
   a="$(sed -n 's/^action=//p' "$mk" | head -n1)"
@@ -72,78 +56,111 @@ approved() {
   return 0
 }
 
+decision_gate_gate() {
+  decision_gate_approved "$1" && return 0
+  printf '%s\t%s\n' "$1" "$2"
+  return 2
+}
+
+decision_gate_core() {
+  local CMD="${1:-}" CUR_SID="${2:-}" GATE_PUSH EXTRA_GATES PROT_RE SEG CATA_TGT
+  [ -n "$CMD" ] || return 0
+
+  # --- config (the only stack-dependent knobs; accessors: hook_lib.sh/core_lib.sh) ---
+  GATE_PUSH="$(cfg_flag gate_push false)"
+  EXTRA_GATES="$(config_field extra_gates)"
+  case "$EXTRA_GATES" in TODO*|'<'*) EXTRA_GATES="" ;; esac
+  PROT_RE="$(protected_re)"
+
+  # segment start = beginning, or after ; & | $( `
+  SEG='(^|[;&|]|\$\(|`)[[:space:]]*(sudo[[:space:]]+)?'
+
+  # 1. package publish
+  if printf '%s' "$CMD" | grep -Eq "${SEG}(npm|pnpm|yarn|bun)[[:space:]]+publish([[:space:]]|\$)"; then
+    decision_gate_gate publish "package publish" || return 2
+  fi
+
+  # 2. release / store submit
+  if printf '%s' "$CMD" | grep -Eq "${SEG}(npx[[:space:]]+)?eas[[:space:]]+submit([[:space:]]|\$)"; then
+    decision_gate_gate release "eas submit" || return 2
+  fi
+  if printf '%s' "$CMD" | grep -Eq "${SEG}gh[[:space:]]+release[[:space:]]+create([[:space:]]|\$)"; then
+    decision_gate_gate release "gh release create" || return 2
+  fi
+
+  # 3. PR merge into a protected branch
+  if printf '%s' "$CMD" | grep -Eq "${SEG}gh[[:space:]]+pr[[:space:]]+merge([[:space:]]|\$)"; then
+    decision_gate_gate merge "gh pr merge" || return 2
+  fi
+
+  # 4. git push family
+  if printf '%s' "$CMD" | grep -Eq "${SEG}git[[:space:]]+(-[^[:space:]]+[[:space:]]+)*push([[:space:]]|\$)"; then
+    # gate_push:true -> every push is a gate
+    if [ "$GATE_PUSH" = "true" ]; then
+      decision_gate_gate push "git push (gate_push=true)" || return 2
+    fi
+    # force-push -> rewrites remote history (high-impact). Match -f/--force as a
+    # whole arg token in ANY position — `git[[:space:]]+push[[:space:]]` consumes the
+    # only space before the first arg, so a leading `[[:space:]]-f` misses `push -f`.
+    if printf '%s' "$CMD" | grep -Eq "git[[:space:]]+push[[:space:]]+([^[:space:]]+[[:space:]]+)*(--force([[:space:]=]|\$)|--force-with-lease|-f([[:space:]]|\$))"; then
+      decision_gate_gate push "git force-push" || return 2
+    fi
+    # force-refspec form: `git push origin +main` / `+refs/heads/x` force-pushes a
+    # ref with no -f/--force flag. A `+`-prefixed refspec token (space, `+`, then a
+    # non-flag char) is a force-push of ANY branch -> same T2 as --force above.
+    if printf '%s' "$CMD" | grep -Eq "git[[:space:]]+push[[:space:]].*[[:space:]][+][^[:space:]-]"; then
+      decision_gate_gate push "git force-push (+refspec)" || return 2
+    fi
+    # tag push -> publishing a release ref
+    if printf '%s' "$CMD" | grep -Eq "git[[:space:]]+push[[:space:]].*(--tags([[:space:]]|\$)|refs/tags/)"; then
+      decision_gate_gate release "git tag push" || return 2
+    fi
+    # push targeting a protected branch (space- or colon-delimited branch token,
+    # or a fully-qualified refs/heads/<protected> refspec)
+    if printf '%s' "$CMD" | grep -Eq "git[[:space:]]+push[[:space:]].*([[:space:]:](${PROT_RE})|refs/heads/(${PROT_RE}))([[:space:]]|\$)"; then
+      decision_gate_gate push "git push to protected branch" || return 2
+    fi
+  fi
+
+  # 5. catastrophic delete: a WHOLE root or WHOLE home. A home SUBDIR
+  # (rm -rf ~/.cache) is reversible T1 and must pass — see .claude/loop/review.md.
+  #   /         : root — trailing space, '/', '*', or end     (rm -rf /, //, /*)
+  #   ~ /$HOME  : whole home only — optional single trailing '/' then space/end
+  #               (rm -rf ~, ~/, $HOME) but NOT ~/<subdir>
+  CATA_TGT='(/([[:space:]]|/|[*]|$)|(~|[$]HOME|[$][{]HOME[}])/?([[:space:]]|$))'
+  if printf '%s' "$CMD" | grep -Eq "${SEG}rm[[:space:]]+(-[a-zA-Z]*[[:space:]]+)*-[a-zA-Z]*([rR][a-zA-Z]*[fF]|[fF][a-zA-Z]*[rR])[a-zA-Z]*[[:space:]]+${CATA_TGT}"; then
+    decision_gate_gate destructive "catastrophic rm -rf/-fr" || return 2
+  fi
+
+  # 6. project-specific extra gates (opt-in regex; e.g. external endpoints, cost)
+  if [ -n "$EXTRA_GATES" ] && printf '%s' "$CMD" | grep -Eq "$EXTRA_GATES" 2>/dev/null; then
+    decision_gate_gate custom "extra_gates match" || return 2
+  fi
+
+  return 0
+}
+
 deny() {
   # $1 = fixed tag, $2 = action class — both chosen below, safe to interpolate.
   printf '{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"deny","permissionDecisionReason":"loopy decision_gate: T2 (irreversible / high-impact) action blocked (%s). This is a human gate — do NOT work around it. Stop, summarize in .claude/loop/review.md, and get explicit human approval. Once approved, write .claude/loop/.gate-approved (action=%s, session_id, ts), retry, then remove the marker."}}\n' "$1" "$2"
   exit 0
 }
 
-# gate <class> <tag>: block unless the human approved this class.
-gate() { approved "$1" || deny "$2" "$1"; }
-
-# segment start = beginning, or after ; & | $( `
-SEG='(^|[;&|]|\$\(|`)[[:space:]]*(sudo[[:space:]]+)?'
-
-# 1. package publish
-if printf '%s' "$CMD" | grep -Eq "${SEG}(npm|pnpm|yarn|bun)[[:space:]]+publish([[:space:]]|\$)"; then
-  gate publish "package publish"
-fi
-
-# 2. release / store submit
-if printf '%s' "$CMD" | grep -Eq "${SEG}(npx[[:space:]]+)?eas[[:space:]]+submit([[:space:]]|\$)"; then
-  gate release "eas submit"
-fi
-if printf '%s' "$CMD" | grep -Eq "${SEG}gh[[:space:]]+release[[:space:]]+create([[:space:]]|\$)"; then
-  gate release "gh release create"
-fi
-
-# 3. PR merge into a protected branch
-if printf '%s' "$CMD" | grep -Eq "${SEG}gh[[:space:]]+pr[[:space:]]+merge([[:space:]]|\$)"; then
-  gate merge "gh pr merge"
-fi
-
-# 4. git push family
-if printf '%s' "$CMD" | grep -Eq "${SEG}git[[:space:]]+(-[^[:space:]]+[[:space:]]+)*push([[:space:]]|\$)"; then
-  # gate_push:true -> every push is a gate
-  if [ "$GATE_PUSH" = "true" ]; then
-    gate push "git push (gate_push=true)"
+decision_gate_main() {
+  local CMD CUR_SID verdict rc cls tag
+  hook_init
+  hook_debug decision_gate
+  CMD="$(bash_cmd)"
+  CUR_SID="$(json_str session_id)"
+  verdict="$(decision_gate_core "$CMD" "$CUR_SID")"; rc=$?
+  if [ "$rc" -eq 2 ]; then
+    cls="${verdict%%	*}"
+    tag="${verdict#*	}"
+    deny "$tag" "$cls"
   fi
-  # force-push -> rewrites remote history (high-impact). Match -f/--force as a
-  # whole arg token in ANY position — `git[[:space:]]+push[[:space:]]` consumes the
-  # only space before the first arg, so a leading `[[:space:]]-f` misses `push -f`.
-  if printf '%s' "$CMD" | grep -Eq "git[[:space:]]+push[[:space:]]+([^[:space:]]+[[:space:]]+)*(--force([[:space:]=]|\$)|--force-with-lease|-f([[:space:]]|\$))"; then
-    gate push "git force-push"
-  fi
-  # force-refspec form: `git push origin +main` / `+refs/heads/x` force-pushes a
-  # ref with no -f/--force flag. A `+`-prefixed refspec token (space, `+`, then a
-  # non-flag char) is a force-push of ANY branch -> same T2 as --force above.
-  if printf '%s' "$CMD" | grep -Eq "git[[:space:]]+push[[:space:]].*[[:space:]][+][^[:space:]-]"; then
-    gate push "git force-push (+refspec)"
-  fi
-  # tag push -> publishing a release ref
-  if printf '%s' "$CMD" | grep -Eq "git[[:space:]]+push[[:space:]].*(--tags([[:space:]]|\$)|refs/tags/)"; then
-    gate release "git tag push"
-  fi
-  # push targeting a protected branch (space- or colon-delimited branch token,
-  # or a fully-qualified refs/heads/<protected> refspec)
-  if printf '%s' "$CMD" | grep -Eq "git[[:space:]]+push[[:space:]].*([[:space:]:](${PROT_RE})|refs/heads/(${PROT_RE}))([[:space:]]|\$)"; then
-    gate push "git push to protected branch"
-  fi
-fi
+  exit 0
+}
 
-# 5. catastrophic delete: a WHOLE root or WHOLE home. A home SUBDIR
-# (rm -rf ~/.cache) is reversible T1 and must pass — see .claude/loop/review.md.
-#   /         : root — trailing space, '/', '*', or end     (rm -rf /, //, /*)
-#   ~ /$HOME  : whole home only — optional single trailing '/' then space/end
-#               (rm -rf ~, ~/, $HOME) but NOT ~/<subdir>
-CATA_TGT='(/([[:space:]]|/|[*]|$)|(~|[$]HOME|[$][{]HOME[}])/?([[:space:]]|$))'
-if printf '%s' "$CMD" | grep -Eq "${SEG}rm[[:space:]]+(-[a-zA-Z]*[[:space:]]+)*-[a-zA-Z]*([rR][a-zA-Z]*[fF]|[fF][a-zA-Z]*[rR])[a-zA-Z]*[[:space:]]+${CATA_TGT}"; then
-  gate destructive "catastrophic rm -rf/-fr"
+if [ "${LOOPY_SOURCE_ONLY:-}" != "1" ]; then
+  decision_gate_main "$@"
 fi
-
-# 6. project-specific extra gates (opt-in regex; e.g. external endpoints, cost)
-if [ -n "$EXTRA_GATES" ] && printf '%s' "$CMD" | grep -Eq "$EXTRA_GATES" 2>/dev/null; then
-  gate custom "extra_gates match"
-fi
-
-exit 0

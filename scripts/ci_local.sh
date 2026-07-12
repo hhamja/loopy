@@ -13,10 +13,10 @@ set -eu
 cd "$(dirname "$0")/.." || exit 1
 
 echo "== shellcheck =="
-shellcheck scripts/*.sh tests/*.sh
+shellcheck scripts/*.sh tests/*.sh bin/loopy install.sh
 
 echo "== bash -n (syntax) =="
-for f in scripts/*.sh tests/*.sh; do
+for f in scripts/*.sh tests/*.sh bin/loopy install.sh; do
   bash -n "$f"
 done
 
@@ -34,5 +34,9 @@ bash scripts/check_budget.sh
 
 echo "== hook contract tests =="
 bash tests/run.sh
+
+echo "== engine CLI + vendoring tests =="
+bash tests/test_cli.sh
+bash tests/test_install.sh
 
 echo "ALL GREEN"

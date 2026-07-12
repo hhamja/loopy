@@ -30,6 +30,28 @@ claude --plugin-dir /absolute/path/to/loopy
 
 (Absolute path recommended.)
 
+**Path 3 — vendoring (no plugin, works outside Claude Code):**
+
+Prefer to see and review the code in every project — or run the engine outside Claude Code? Vendor it instead of installing the plugin:
+
+```
+cd /path/to/your/project
+bash /path/to/loopy/install.sh          # installs into ./.claude
+```
+
+This copies the engine into `<project>/.claude/loopy/` (the bash scripts + the `loopy` CLI), the skills into `.claude/skills/`, and the agents into `.claude/agents/`, then **merges** the hook wiring into `.claude/settings.json` — pointing at `$CLAUDE_PROJECT_DIR/.claude/loopy/scripts/…`, never `${CLAUDE_PLUGIN_ROOT}`. Everything lands as plain files you commit with your repo: reviewable in diffs, editable per project. Re-run `install.sh` to update — it is idempotent and never clobbers unrelated settings or duplicates hooks.
+
+The engine is also a **runtime-agnostic CLI**, usable from a terminal, CI, or any agent runtime — no Claude Code required:
+
+```
+.claude/loopy/bin/loopy gate-check --cmd "git push origin main"   # exit 2 = T2 blocked
+.claude/loopy/bin/loopy stop-check                                # loop stop gate
+.claude/loopy/bin/loopy init                                      # scaffold .claude/loop/
+.claude/loopy/bin/loopy verify                                    # run the rubric's verify: commands
+```
+
+The gates and git-automation run anywhere; the intelligent loop orchestration (`loop-run`, the verifier) still runs as Claude Code skills/subagents.
+
 ## Quickstart (3 minutes)
 
 1. `cd` into your project and start Claude Code.
