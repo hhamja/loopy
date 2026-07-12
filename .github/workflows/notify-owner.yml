@@ -1,0 +1,31 @@
+name: notify-owner
+
+# Solo-account mobile notification when a PR is opened.
+# GitHub suppresses notifications for your OWN actions, so a PR you (the token
+# owner) open never pings you. A comment authored by github-actions[bot] is a
+# DIFFERENT actor, so an @mention inside it is NOT self-suppressed — you get a
+# "mention" push on GitHub Mobile. Fires on every PR open, which in the loop
+# harness is the "agent finished — come look / merge" moment.
+on:
+  pull_request:
+    types: [opened]
+
+permissions:
+  pull-requests: write
+
+jobs:
+  ping:
+    runs-on: ubuntu-latest
+    steps:
+      # Values flow through env, never inlined into the script, so a crafted
+      # PR title can't inject shell.
+      - name: mention the owner on the new PR
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PR: ${{ github.event.pull_request.number }}
+          REPO: ${{ github.repository }}
+          OWNER: ${{ github.repository_owner }}
+          TITLE: ${{ github.event.pull_request.title }}
+        run: |
+          gh pr comment "$PR" --repo "$REPO" \
+            --body "@$OWNER 🔔 new PR opened — #$PR: $TITLE"
